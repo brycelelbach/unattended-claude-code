@@ -3,18 +3,22 @@
 #
 # Does the following, idempotently:
 #   1. Installs Claude Code (native installer) if not already present.
-#   2. Installs the gh CLI from the official apt/dnf repo (system-wide;
+#   2. Installs the Brev CLI (official install-latest.sh) if not already
+#      present.
+#   3. Installs the gh CLI from the official apt/dnf repo (system-wide;
 #      needs sudo).
-#   3. Writes ~/.claude/settings.json with unattended-mode defaults
+#   4. Writes ~/.claude/settings.json with unattended-mode defaults
 #      (bypassPermissions, sandboxed, max effort, opus-4-7).
-#   4. Pre-populates ~/.claude.json with hasCompletedOnboarding=true so the
+#   5. Pre-populates ~/.claude.json with hasCompletedOnboarding=true so the
 #      first `claude` launch skips the theme / color-scheme wizard, and —
 #      if ANTHROPIC_API_KEY is set — pre-approves that key so the CLI
 #      doesn't prompt for approval on first use either.
-#   5. Configures git: user.name, user.email (from env vars), and registers
+#   6. Writes ~/.brev/onboarding.json so the first `brev` invocation skips
+#      the interactive tutorial.
+#   7. Configures git: user.name, user.email (from env vars), and registers
 #      gh as the github.com credential helper so `git clone` / `push` reuse
 #      the gh CLI's stored token.
-#   6. Appends PATH / alias / env exports to ~/.bashrc (managed block) so
+#   8. Appends PATH / alias / env exports to ~/.bashrc (managed block) so
 #      interactive shells pick up ~/.local/bin, run `claude` with
 #      --dangerously-skip-permissions, and — if ANTHROPIC_API_KEY was set
 #      at bootstrap time — export it for future shells.
@@ -40,6 +44,8 @@ set -euo pipefail
 CLAUDE_DIR="${HOME}/.claude"
 SETTINGS_FILE="${CLAUDE_DIR}/settings.json"
 CLAUDE_JSON="${HOME}/.claude.json"
+BREV_DIR="${HOME}/.brev"
+BREV_ONBOARDING="${BREV_DIR}/onboarding.json"
 BASHRC="${HOME}/.bashrc"
 BASHRC_MARKER_BEGIN="# >>> unattended-brev-agent-bootstrap >>>"
 BASHRC_MARKER_END="# <<< unattended-brev-agent-bootstrap <<<"
@@ -69,7 +75,19 @@ install_claude() {
 }
 
 # ---------------------------------------------------------------------------
-# 2. Install gh CLI from the official cli.github.com repo.
+# 2. Install the Brev CLI via the official install-latest.sh if missing.
+# ---------------------------------------------------------------------------
+install_brev() {
+    if command -v brev >/dev/null 2>&1; then
+        log "brev already installed: $(command -v brev)"
+        return
+    fi
+    log "installing Brev CLI via official installer..."
+    curl -fsSL https://raw.githubusercontent.com/brevdev/brev-cli/main/bin/install-latest.sh | bash
+}
+
+# ---------------------------------------------------------------------------
+# 3. Install gh CLI from the official cli.github.com repo.
 #
 # Ubuntu / Debian ship an old gh that predates `gh auth token` and
 # `gh auth git-credential`. We specifically want those so the git
@@ -106,7 +124,7 @@ ensure_gh() {
 }
 
 # ---------------------------------------------------------------------------
-# 3. Write ~/.claude/settings.json.
+# 4. Write ~/.claude/settings.json.
 # ---------------------------------------------------------------------------
 write_settings() {
     mkdir -p "${CLAUDE_DIR}"
@@ -133,7 +151,7 @@ JSON
 }
 
 # ---------------------------------------------------------------------------
-# 4. Skip the first-run onboarding (theme prompt) AND pre-approve the
+# 5. Skip the first-run onboarding (theme prompt) AND pre-approve the
 # ANTHROPIC_API_KEY fingerprint if one is set.
 #
 # Both gates live in ~/.claude.json (NOT ~/.claude/settings.json):
@@ -177,7 +195,23 @@ PY
 }
 
 # ---------------------------------------------------------------------------
-# 5. Configure git: identity + gh as github.com credential helper.
+# 6. Write ~/.brev/onboarding.json to disable the Brev interactive tutorial.
+# ---------------------------------------------------------------------------
+skip_brev_onboarding() {
+    mkdir -p "${BREV_DIR}"
+    if [[ -f "${BREV_ONBOARDING}" ]]; then
+        local backup="${BREV_ONBOARDING}.bak.$(date +%Y%m%d-%H%M%S)"
+        cp "${BREV_ONBOARDING}" "${backup}"
+        log "backed up existing onboarding.json -> ${backup}"
+    fi
+    cat > "${BREV_ONBOARDING}" <<'JSON'
+{"step": 1, "hasRunBrevShell": true, "hasRunBrevOpen": true}
+JSON
+    log "wrote ${BREV_ONBOARDING}"
+}
+
+# ---------------------------------------------------------------------------
+# 7. Configure git: identity + gh as github.com credential helper.
 # ---------------------------------------------------------------------------
 configure_git() {
     if ! command -v git >/dev/null 2>&1; then
@@ -199,7 +233,7 @@ configure_git() {
 }
 
 # ---------------------------------------------------------------------------
-# 6. Rewrite the unattended-mode block in ~/.bashrc.
+# 8. Rewrite the unattended-mode block in ~/.bashrc.
 #
 # The block is identified by the BEGIN/END markers. On re-run we strip the
 # old block and append a fresh one, so the output always matches the
@@ -245,9 +279,11 @@ EOS
 
 main() {
     install_claude
+    install_brev
     ensure_gh
     write_settings
     skip_onboarding
+    skip_brev_onboarding
     configure_git
     update_bashrc
     log "done. Open a new shell (or 'source ~/.bashrc') so the PATH / alias take effect."
