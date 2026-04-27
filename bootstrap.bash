@@ -46,8 +46,8 @@ CLAUDE_JSON="${HOME}/.claude.json"
 BREV_DIR="${HOME}/.brev"
 BREV_ONBOARDING="${BREV_DIR}/onboarding_step.json"
 BASHRC="${HOME}/.bashrc"
-BASHRC_MARKER_BEGIN="# >>> unattended-brev-agent-bootstrap >>>"
-BASHRC_MARKER_END="# <<< unattended-brev-agent-bootstrap <<<"
+BASHRC_MARKER_BEGIN="# >>> autonomous-agent-bootstrap >>>"
+BASHRC_MARKER_END="# <<< autonomous-agent-bootstrap <<<"
 
 log() { printf '[bootstrap] %s\n' "$*"; }
 warn() { printf '[bootstrap] WARN: %s\n' "$*" >&2; }
@@ -234,7 +234,7 @@ update_bashrc() {
             !skip { print }
         ' "${BASHRC}" > "$tmp"
         mv "$tmp" "${BASHRC}"
-        log "replaced existing unattended-brev-agent-bootstrap block in ${BASHRC}"
+        log "replaced existing autonomous-agent-bootstrap block in ${BASHRC}"
     fi
     {
         printf '\n%s\n' "${BASHRC_MARKER_BEGIN}"
@@ -257,7 +257,7 @@ EOS
         fi
         printf '%s\n' "${BASHRC_MARKER_END}"
     } >> "${BASHRC}"
-    log "wrote unattended-brev-agent-bootstrap block to ${BASHRC}"
+    log "wrote autonomous-agent-bootstrap block to ${BASHRC}"
 }
 
 main() {
