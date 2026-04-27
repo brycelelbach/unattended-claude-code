@@ -1,0 +1,12 @@
+# Claude Code plugin marketplaces installed by bootstrap.bash.
+#
+# One GitHub "owner/repo" per line. The repo must be a Claude Code plugin
+# marketplace — i.e. it contains .claude-plugin/marketplace.json at the
+# repository root. The bootstrap reads that file to discover the
+# marketplace name and the plugin name(s) to enable.
+#
+# Lines beginning with '#' and blank lines are ignored. To install
+# additional plugins, add their marketplace repos below.
+
+brycelelbach/agitentic
+brycelelbach/autocuda

@@ -6,6 +6,11 @@
 #   2. Installs / upgrades the Brev CLI via the official install-latest.sh.
 #   3. Installs / upgrades the gh CLI from the official apt/dnf repo
 #      (system-wide; needs sudo).
+#   ~. Registers Claude Code plugin marketplaces listed in
+#      claude_code_plugins.txt (default: agitentic + autocuda) into
+#      ~/.claude/settings.json's extraKnownMarketplaces, and enables the
+#      plugins they declare in enabledPlugins. Claude Code picks these up
+#      on next launch with no prompt (user scope).
 #   4. Writes ~/.claude/settings.json with unattended-mode defaults
 #      (bypassPermissions, sandboxed, max effort, opus-4-7).
 #   5. Pre-populates ~/.claude.json with hasCompletedOnboarding=true so the
@@ -65,6 +70,15 @@
 #                       `git config --global user.name`.
 #   GIT_AUTHOR_EMAIL    Email address attached to git commits. Written to
 #                       `git config --global user.email`.
+#   AAB_CLAUDE_CODE_PLUGINS_FILE
+#                       Path to a local claude_code_plugins.txt listing
+#                       plugin marketplaces to install. Read directly when
+#                       set and the file exists; overrides
+#                       AAB_CLAUDE_CODE_PLUGINS_URL.
+#   AAB_CLAUDE_CODE_PLUGINS_URL
+#                       URL to fetch claude_code_plugins.txt from when no
+#                       local file is set. Defaults to the canonical file
+#                       on main of this repo.
 #
 # Can be run from a local checkout or piped via `curl ... | bash`. Safe to
 # re-run: existing settings.json and .claude.json are backed up before
@@ -252,7 +266,110 @@ configure_git() {
 }
 
 # ---------------------------------------------------------------------------
-# 8. Rewrite the unattended-mode block in ~/.bashrc.
+# 8. Install Claude Code plugins listed in claude_code_plugins.txt.
+#
+# Each line is a GitHub owner/repo that hosts a Claude Code marketplace
+# (repo contains .claude-plugin/marketplace.json). We fetch each
+# marketplace.json to discover the marketplace name and the plugin
+# names, then merge them into ~/.claude/settings.json under
+# extraKnownMarketplaces (so the marketplace is known) and
+# enabledPlugins (so the plugin is turned on). Claude Code picks these
+# up on next launch, user-scope, no prompt.
+#
+# The list is taken from (in order): $AAB_CLAUDE_CODE_PLUGINS_FILE if
+# set to an existing path, otherwise fetched from
+# $AAB_CLAUDE_CODE_PLUGINS_URL (defaults to main@autonomous-agent-bootstrap).
+# ---------------------------------------------------------------------------
+PLUGINS_DEFAULT_URL="https://raw.githubusercontent.com/brycelelbach/autonomous-agent-bootstrap/main/claude_code_plugins.txt"
+install_claude_code_plugins() {
+    command -v python3 >/dev/null 2>&1 || { warn "python3 required for plugin install; skipping"; return; }
+    local plugins_file="${AAB_CLAUDE_CODE_PLUGINS_FILE:-}"
+    local plugins_url="${AAB_CLAUDE_CODE_PLUGINS_URL:-$PLUGINS_DEFAULT_URL}"
+    local content=""
+    if [ -n "$plugins_file" ] && [ -f "$plugins_file" ]; then
+        content=$(cat "$plugins_file")
+        log "reading plugin list from ${plugins_file}"
+    elif content=$(curl -fsSL "$plugins_url" 2>/dev/null); then
+        log "fetched plugin list from ${plugins_url}"
+    else
+        warn "could not read plugin list (file=${plugins_file:-unset}, url=${plugins_url}); skipping plugin install"
+        return
+    fi
+
+    # Strip comments and blanks → one repo per line.
+    local -a repos=()
+    while IFS= read -r line; do
+        line="${line%%#*}"
+        # trim
+        line="${line#"${line%%[![:space:]]*}"}"
+        line="${line%"${line##*[![:space:]]}"}"
+        [ -z "$line" ] && continue
+        repos+=("$line")
+    done <<< "$content"
+
+    if [ ${#repos[@]} -eq 0 ]; then
+        log "plugin list is empty; skipping plugin install"
+        return
+    fi
+
+    # Collect resolved tuples (repo|marketplace|plugin) for every plugin.
+    local -a tuples=()
+    local repo marketplace_json marketplace_name plugin_names plugin_name
+    for repo in "${repos[@]}"; do
+        marketplace_json=""
+        for branch in main master; do
+            if marketplace_json=$(curl -fsSL "https://raw.githubusercontent.com/${repo}/${branch}/.claude-plugin/marketplace.json" 2>/dev/null); then
+                break
+            fi
+            marketplace_json=""
+        done
+        if [ -z "$marketplace_json" ]; then
+            warn "could not fetch .claude-plugin/marketplace.json from ${repo}; skipping"
+            continue
+        fi
+        marketplace_name=$(printf '%s' "$marketplace_json" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("name",""))') || marketplace_name=""
+        if [ -z "$marketplace_name" ]; then
+            warn "${repo}/.claude-plugin/marketplace.json has no 'name'; skipping"
+            continue
+        fi
+        plugin_names=$(printf '%s' "$marketplace_json" | python3 -c 'import json,sys; [print(p["name"]) for p in json.load(sys.stdin).get("plugins",[]) if p.get("name")]')
+        if [ -z "$plugin_names" ]; then
+            warn "${repo} marketplace lists no plugins; skipping"
+            continue
+        fi
+        while IFS= read -r plugin_name; do
+            [ -z "$plugin_name" ] && continue
+            tuples+=("${repo}|${marketplace_name}|${plugin_name}")
+        done <<< "$plugin_names"
+    done
+
+    if [ ${#tuples[@]} -eq 0 ]; then
+        warn "no plugins resolved; skipping settings.json update"
+        return
+    fi
+
+    # Merge into ~/.claude/settings.json. write_settings has already run,
+    # so the file exists and is valid JSON.
+    python3 - "$SETTINGS_FILE" "${tuples[@]}" <<'PY'
+import json, sys
+path = sys.argv[1]
+tuples = sys.argv[2:]
+with open(path) as f:
+    data = json.load(f)
+extra = data.setdefault("extraKnownMarketplaces", {})
+enabled = data.setdefault("enabledPlugins", {})
+for t in tuples:
+    repo, marketplace, plugin = t.split("|", 2)
+    extra[marketplace] = {"source": {"source": "github", "repo": repo}}
+    enabled[f"{plugin}@{marketplace}"] = True
+    print(f"[bootstrap] enabled plugin {plugin}@{marketplace} from github {repo}")
+with open(path, "w") as f:
+    json.dump(data, f, indent=2)
+PY
+}
+
+# ---------------------------------------------------------------------------
+# 9. Rewrite the unattended-mode block in ~/.bashrc.
 #
 # The block is identified by the BEGIN/END markers. On re-run we strip the
 # old block and append a fresh one, so the output always matches the
@@ -363,6 +480,7 @@ main() {
     skip_onboarding
     skip_brev_onboarding
     configure_git
+    install_claude_code_plugins
     update_bashrc
     log "done. Open a new shell (or 'source ~/.bashrc') so the PATH / alias take effect."
 }

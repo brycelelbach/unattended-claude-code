@@ -13,6 +13,7 @@ A single idempotent bash script that turns a fresh Linux host into a ready-to-us
    - `claude` aliased to `claude --dangerously-skip-permissions` in interactive shells
 2. **`gh` CLI** — latest release from the official `cli.github.com` apt/dnf repo (the distro-shipped `gh` predates `gh auth token` / `gh auth git-credential`).
 3. **git** — `user.name` / `user.email` set from env, and `gh` registered as the `github.com` credential helper so `git clone` / `git push` reuse the gh-stored token with no interactive prompt.
+4. **Claude Code plugins** — marketplaces listed in [`claude_code_plugins.txt`](./claude_code_plugins.txt) are registered in `~/.claude/settings.json`'s `extraKnownMarketplaces`, and the plugins they declare are flipped on in `enabledPlugins`. Claude Code fetches them on next launch, no prompt. Defaults ship [agitentic](https://github.com/brycelelbach/agitentic) and [autocuda](https://github.com/brycelelbach/autocuda); add more by editing the file and re-running the bootstrap.
 
 ## Quick start
 
@@ -94,13 +95,26 @@ All optional. Anything unset is simply skipped.
 | `GH_TOKEN` | Exported from the `~/.bashrc` managed block. `gh` reads it from the environment directly, and since `gh auth git-credential` is registered as the `github.com` credential helper, `git clone` / `git push` reuse it automatically. |
 | `GIT_AUTHOR_NAME` | `git config --global user.name` |
 | `GIT_AUTHOR_EMAIL` | `git config --global user.email` |
+| `AAB_CLAUDE_CODE_PLUGINS_FILE` | Path to a local `claude_code_plugins.txt`. If set and the file exists, it's used instead of fetching the canonical list. |
+| `AAB_CLAUDE_CODE_PLUGINS_URL` | URL of the plugin list to fetch when `AAB_CLAUDE_CODE_PLUGINS_FILE` is unset. Defaults to `claude_code_plugins.txt` on `main` of this repo. |
+
+## Managing the plugin list
+
+Plugins are listed, one per line, in [`claude_code_plugins.txt`](./claude_code_plugins.txt) as GitHub `owner/repo` pointers to Claude Code plugin marketplaces (repos that contain `.claude-plugin/marketplace.json`). For each entry, the bootstrap fetches the marketplace manifest, reads the marketplace name and plugin names it declares, and merges:
+
+- `extraKnownMarketplaces["<marketplace-name>"] = { "source": { "source": "github", "repo": "<owner/repo>" } }`
+- `enabledPlugins["<plugin>@<marketplace>"] = true`
+
+…into `~/.claude/settings.json`. Claude Code fetches and caches the plugins on next launch, at user scope, with no interactive prompt.
+
+To add a plugin: append its marketplace's `owner/repo` to `claude_code_plugins.txt` and re-run the bootstrap. To install from your own fork or a different list, set `AAB_CLAUDE_CODE_PLUGINS_FILE=/path/to/your.txt` or `AAB_CLAUDE_CODE_PLUGINS_URL=https://...`.
 
 ## What the script touches
 
 | Path | How |
 | --- | --- |
 | `~/.local/bin/claude` (+ `~/.local/bin/env`) | Written by the Claude Code native installer. |
-| `~/.claude/settings.json` | Overwritten with unattended-mode defaults. Existing file backed up to `settings.json.bak.<timestamp>`. |
+| `~/.claude/settings.json` | Overwritten with unattended-mode defaults, then merged with `extraKnownMarketplaces` / `enabledPlugins` entries for each plugin in `claude_code_plugins.txt`. Existing file backed up to `settings.json.bak.<timestamp>` before the rewrite. |
 | `~/.claude.json` | Merged — `hasCompletedOnboarding=true` and optional `customApiKeyResponses.approved` entry. Existing file backed up to `.claude.json.bak.<timestamp>`. |
 | `~/.bashrc` | Managed block between `# >>> autonomous-agent-bootstrap >>>` and `# <<< autonomous-agent-bootstrap <<<`. Rewritten wholesale on every run. |
 | `~/.gitconfig` | `user.name`, `user.email`, and `credential.https://github.com.helper`. |
