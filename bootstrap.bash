@@ -350,19 +350,37 @@ install_claude_code_plugins() {
         return
     fi
 
+    # Private plugin repos need an authenticated fetch. Prefer `gh api` when
+    # it's installed and authenticated (works for both public and private
+    # repos); fall back to unauthenticated raw.githubusercontent.com so
+    # public plugins still work on hosts without a gh login.
+    local use_gh=0
+    if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
+        use_gh=1
+    fi
+
     # Collect resolved tuples (repo|marketplace|plugin) for every plugin.
     local -a tuples=()
     local repo marketplace_json marketplace_name plugin_names plugin_name
     for repo in "${repos[@]}"; do
         marketplace_json=""
         for branch in main master; do
-            if marketplace_json=$(curl -fsSL "https://raw.githubusercontent.com/${repo}/${branch}/.claude-plugin/marketplace.json" 2>/dev/null); then
-                break
+            if [ $use_gh -eq 1 ]; then
+                marketplace_json=$(gh api -H "Accept: application/vnd.github.v3.raw" \
+                    "repos/${repo}/contents/.claude-plugin/marketplace.json?ref=${branch}" 2>/dev/null) \
+                    || marketplace_json=""
             fi
-            marketplace_json=""
+            if [ -z "$marketplace_json" ]; then
+                marketplace_json=$(curl -fsSL "https://raw.githubusercontent.com/${repo}/${branch}/.claude-plugin/marketplace.json" 2>/dev/null) \
+                    || marketplace_json=""
+            fi
+            [ -n "$marketplace_json" ] && break
         done
         if [ -z "$marketplace_json" ]; then
-            warn "could not fetch .claude-plugin/marketplace.json from ${repo}; skipping"
+            # Most commonly this means the repo is private and the caller
+            # lacks access (or gh isn't authenticated). Plugin install is an
+            # optional step — log and move on without failing the bootstrap.
+            log "could not fetch .claude-plugin/marketplace.json from ${repo} (private repo without access?); skipping"
             continue
         fi
         marketplace_name=$(printf '%s' "$marketplace_json" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("name",""))') || marketplace_name=""

@@ -9,4 +9,4 @@
 # additional plugins, add their marketplace repos below.
 
 brycelelbach/agitentic
-brycelelbach/autocuda
+brycelelbach-private/autocuda
