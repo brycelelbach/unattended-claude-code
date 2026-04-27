@@ -1,4 +1,4 @@
-# unattended-brev-agent-bootstrap
+# autonomous-agent-bootstrap
 
 A single idempotent bash script that turns a fresh Linux host into a ready-to-use Claude Code agent environment. Built for Brev VMs but works on any Ubuntu/Debian or Fedora/RHEL host.
 
@@ -22,7 +22,7 @@ export ANTHROPIC_API_KEY=<your-anthropic-api-key>
 export GH_TOKEN=<your-github-token>
 export GIT_AUTHOR_NAME=<your-name>
 export GIT_AUTHOR_EMAIL=<your@email>
-curl -fsSL https://raw.githubusercontent.com/brycelelbach/unattended-brev-agent-bootstrap/main/bootstrap.bash | bash
+curl -fsSL https://raw.githubusercontent.com/brycelelbach/autonomous-agent-bootstrap/main/bootstrap.bash | bash
 source ~/.bashrc
 ```
 
@@ -46,7 +46,7 @@ All optional. Anything unset is simply skipped.
 | `~/.local/bin/claude` (+ `~/.local/bin/env`) | Written by the Claude Code native installer. |
 | `~/.claude/settings.json` | Overwritten with unattended-mode defaults. Existing file backed up to `settings.json.bak.<timestamp>`. |
 | `~/.claude.json` | Merged — `hasCompletedOnboarding=true` and optional `customApiKeyResponses.approved` entry. Existing file backed up to `.claude.json.bak.<timestamp>`. |
-| `~/.bashrc` | Managed block between `# >>> unattended-claude-code bootstrap >>>` and `# <<< unattended-claude-code bootstrap <<<`. Rewritten wholesale on every run. |
+| `~/.bashrc` | Managed block between `# >>> autonomous-agent-bootstrap >>>` and `# <<< autonomous-agent-bootstrap <<<`. Rewritten wholesale on every run. |
 | `~/.gitconfig` | `user.name`, `user.email`, and `credential.https://github.com.helper`. |
 | System-wide | `gh` package, its apt/dnf source + signing keyring (requires `sudo`; script skips with a warning if passwordless `sudo` isn't available). |
 
