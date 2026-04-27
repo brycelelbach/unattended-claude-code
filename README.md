@@ -13,7 +13,7 @@ A single idempotent bash script that turns a fresh Linux host into a ready-to-us
    - `claude` aliased to `claude --dangerously-skip-permissions` in interactive shells
 2. **`gh` CLI** — latest release from the official `cli.github.com` apt repo (the distro-shipped `gh` predates `gh auth token` / `gh auth git-credential`).
 3. **git** — `user.name` / `user.email` set from env, and `gh` registered as the `github.com` credential helper so `git clone` / `git push` reuse the gh-stored token with no interactive prompt.
-4. **Claude Code plugins** — marketplaces listed in [`claude_code_plugins.txt`](./claude_code_plugins.txt) are registered in `~/.claude/settings.json`'s `extraKnownMarketplaces`, and the plugins they declare are flipped on in `enabledPlugins`. Claude Code fetches them on next launch, no prompt. Defaults ship [agitentic](https://github.com/brycelelbach/agitentic) and [autocuda](https://github.com/brycelelbach/autocuda); add more by editing the file and re-running the bootstrap.
+4. **Claude Code plugins** — marketplaces listed in [`claude_code_plugins.txt`](./claude_code_plugins.txt) are registered in `~/.claude/settings.json`'s `extraKnownMarketplaces`, and the plugins they declare are flipped on in `enabledPlugins`. Claude Code fetches them on next launch, no prompt. Defaults ship [agitentic](https://github.com/brycelelbach/agitentic) and [autocuda](https://github.com/brycelelbach-private/autocuda) (private); add more by editing the file and re-running the bootstrap. Plugin repos can be public or private — the bootstrap fetches each marketplace manifest via `gh api` when `gh` is authenticated (picks up `GH_TOKEN` or `gh auth login` credentials) and falls back to unauthenticated `raw.githubusercontent.com` otherwise. Entries the caller lacks access to are logged and skipped; they do not fail the bootstrap.
 
 ## Requirements
 
@@ -117,7 +117,7 @@ All optional. Anything unset is simply skipped.
 
 ## Managing the plugin list
 
-Plugins are listed, one per line, in [`claude_code_plugins.txt`](./claude_code_plugins.txt) as GitHub `owner/repo` pointers to Claude Code plugin marketplaces (repos that contain `.claude-plugin/marketplace.json`). For each entry, the bootstrap fetches the marketplace manifest, reads the marketplace name and plugin names it declares, and merges:
+Plugins are listed, one per line, in [`claude_code_plugins.txt`](./claude_code_plugins.txt) as GitHub `owner/repo` pointers to Claude Code plugin marketplaces (repos that contain `.claude-plugin/marketplace.json`). Entries can be public or private repos; private repos are fetched via `gh api` and require `gh` to be authenticated (any of `GH_TOKEN`, `GITHUB_TOKEN`, or a stored `gh auth login` credential with access to the repo). For each entry, the bootstrap fetches the marketplace manifest, reads the marketplace name and plugin names it declares, and merges:
 
 - `extraKnownMarketplaces["<marketplace-name>"] = { "source": { "source": "github", "repo": "<owner/repo>" } }`
 - `enabledPlugins["<plugin>@<marketplace>"] = true`
@@ -125,6 +125,8 @@ Plugins are listed, one per line, in [`claude_code_plugins.txt`](./claude_code_p
 …into `~/.claude/settings.json`. Claude Code fetches and caches the plugins on next launch, at user scope, with no interactive prompt.
 
 To add a plugin: append its marketplace's `owner/repo` to `claude_code_plugins.txt` and re-run the bootstrap. To install from your own fork or a different list, set `AAB_CLAUDE_CODE_PLUGINS_FILE=/path/to/your.txt` or `AAB_CLAUDE_CODE_PLUGINS_URL=https://...`.
+
+If the bootstrap can't fetch a marketplace manifest — usually because the repo is private and the active GitHub credential doesn't grant access — it logs the skip and moves on. Plugin install is treated as optional; an inaccessible entry does not fail the bootstrap.
 
 ## What the script touches
 
