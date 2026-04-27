@@ -4,7 +4,7 @@
 # Does the following, idempotently:
 #   1. Installs / upgrades Claude Code via the native installer.
 #   2. Installs / upgrades the Brev CLI via the official install-latest.sh.
-#   3. Installs / upgrades the gh CLI from the official apt/dnf repo
+#   3. Installs / upgrades the gh CLI from the official apt repo
 #      (system-wide; needs sudo).
 #   ~. Registers Claude Code plugin marketplaces listed in
 #      claude_code_plugins.txt (default: agitentic + autocuda) into
@@ -145,13 +145,8 @@ ensure_gh() {
             | $SUDO tee /etc/apt/sources.list.d/github-cli.list >/dev/null
         $SUDO apt-get update -y
         $SUDO apt-get install -y gh
-    elif command -v dnf >/dev/null 2>&1; then
-        log "installing gh from cli.github.com dnf repo"
-        $SUDO dnf install -y 'dnf-command(config-manager)' || true
-        $SUDO dnf config-manager --add-repo https://cli.github.com/packages/rpm/gh-cli.repo
-        $SUDO dnf install -y gh
     else
-        warn "unknown package manager — skipping gh install. Install manually from https://cli.github.com/"
+        warn "apt-get not found — skipping gh install. Install manually from https://cli.github.com/"
     fi
 }
 

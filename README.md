@@ -1,6 +1,6 @@
 # autonomous-agent-bootstrap
 
-A single idempotent bash script that turns a fresh Linux host into a ready-to-use Claude Code agent environment. Built for Brev VMs but works on any Ubuntu/Debian or Fedora/RHEL host.
+A single idempotent bash script that turns a fresh Linux host into a ready-to-use Claude Code agent environment. Built for Brev VMs but works on any Ubuntu/Debian host.
 
 ## What it sets up
 
@@ -11,7 +11,7 @@ A single idempotent bash script that turns a fresh Linux host into a ready-to-us
    - Onboarding wizard skipped (no theme / color-scheme prompt on first launch)
    - `ANTHROPIC_API_KEY` pre-approved if provided (no first-run approval prompt)
    - `claude` aliased to `claude --dangerously-skip-permissions` in interactive shells
-2. **`gh` CLI** — latest release from the official `cli.github.com` apt/dnf repo (the distro-shipped `gh` predates `gh auth token` / `gh auth git-credential`).
+2. **`gh` CLI** — latest release from the official `cli.github.com` apt repo (the distro-shipped `gh` predates `gh auth token` / `gh auth git-credential`).
 3. **git** — `user.name` / `user.email` set from env, and `gh` registered as the `github.com` credential helper so `git clone` / `git push` reuse the gh-stored token with no interactive prompt.
 4. **Claude Code plugins** — marketplaces listed in [`claude_code_plugins.txt`](./claude_code_plugins.txt) are registered in `~/.claude/settings.json`'s `extraKnownMarketplaces`, and the plugins they declare are flipped on in `enabledPlugins`. Claude Code fetches them on next launch, no prompt. Defaults ship [agitentic](https://github.com/brycelelbach/agitentic) and [autocuda](https://github.com/brycelelbach/autocuda); add more by editing the file and re-running the bootstrap.
 
@@ -118,7 +118,7 @@ To add a plugin: append its marketplace's `owner/repo` to `claude_code_plugins.t
 | `~/.claude.json` | Merged — `hasCompletedOnboarding=true` and optional `customApiKeyResponses.approved` entry. Existing file backed up to `.claude.json.bak.<timestamp>`. |
 | `~/.bashrc` | Managed block between `# >>> autonomous-agent-bootstrap >>>` and `# <<< autonomous-agent-bootstrap <<<`. Rewritten wholesale on every run. |
 | `~/.gitconfig` | `user.name`, `user.email`, and `credential.https://github.com.helper`. |
-| System-wide | `gh` package, its apt/dnf source + signing keyring (requires `sudo`; script skips with a warning if passwordless `sudo` isn't available). |
+| System-wide | `gh` package, its apt source + signing keyring (requires `sudo`; script skips with a warning if passwordless `sudo` isn't available). |
 
 ## Re-running
 
