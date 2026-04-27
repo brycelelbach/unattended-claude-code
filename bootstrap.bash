@@ -23,14 +23,48 @@
 #      at bootstrap time — export it for future shells.
 #
 # Optional env vars:
-#   ANTHROPIC_API_KEY   Pre-approved in ~/.claude.json and exported from the
-#                       ~/.bashrc managed block.
-#   GH_TOKEN            Exported from the ~/.bashrc managed block. gh reads
-#                       it from the environment directly, and the github.com
-#                       credential helper we register below delegates to
+#   AAB_CLAUDE_CODE_INFERENCE_PROVIDER
+#                       Which inference backend Claude Code should use —
+#                       'anthropic' (default, first-party Anthropic API) or
+#                       'third-party' (any Anthropic-compatible gateway).
+#                       Selects which branch of the if/else written to
+#                       ~/.bashrc is active at runtime. Can be flipped later
+#                       via the `claude_code_switch_inference_provider`
+#                       function also written to ~/.bashrc.
+#   AAB_CLAUDE_CODE_MODEL
+#                       Unprefixed model name (e.g. 'claude-opus-4-7'). Baked
+#                       into ~/.claude/settings.json's "model" field and
+#                       exported as ANTHROPIC_MODEL in the anthropic branch.
+#                       Defaults to claude-opus-4-7.
+#   AAB_CLAUDE_CODE_MODEL_THIRD_PARTY_PREFIX
+#                       Namespace prefix a third-party gateway uses in front
+#                       of Anthropic model names. Prepended to
+#                       AAB_CLAUDE_CODE_MODEL in the third-party branch's
+#                       ANTHROPIC_MODEL export (e.g. 'aws/anthropic/bedrock-'
+#                       + 'claude-opus-4-7' = 'aws/anthropic/bedrock-claude-
+#                       opus-4-7').
+#   ANTHROPIC_API_KEY   Anthropic first-party API key. Last 20 characters are
+#                       pre-approved in ~/.claude.json's
+#                       customApiKeyResponses.approved so Claude Code won't
+#                       prompt, and the key is exported from the anthropic
+#                       branch of the ~/.bashrc managed block.
+#   ANTHROPIC_BASE_URL  Base URL of the Anthropic-compatible third-party
+#                       gateway (points Claude Code at a non-Anthropic
+#                       endpoint). Exported from the third-party branch of
+#                       the ~/.bashrc managed block.
+#   ANTHROPIC_AUTH_TOKEN
+#                       Bearer token used to authenticate against the
+#                       third-party gateway. Exported from the third-party
+#                       branch of the ~/.bashrc managed block.
+#   GH_TOKEN            GitHub personal access token. Exported from the
+#                       ~/.bashrc managed block; gh reads it from the
+#                       environment directly, and the github.com credential
+#                       helper we register below delegates to
 #                       `gh auth git-credential`, so git clone/push reuse it.
-#   GIT_AUTHOR_NAME     `git config --global user.name`.
-#   GIT_AUTHOR_EMAIL    `git config --global user.email`.
+#   GIT_AUTHOR_NAME     Display name attached to git commits. Written to
+#                       `git config --global user.name`.
+#   GIT_AUTHOR_EMAIL    Email address attached to git commits. Written to
+#                       `git config --global user.email`.
 #
 # Can be run from a local checkout or piped via `curl ... | bash`. Safe to
 # re-run: existing settings.json and .claude.json are backed up before
@@ -48,6 +82,7 @@ BREV_ONBOARDING="${BREV_DIR}/onboarding_step.json"
 BASHRC="${HOME}/.bashrc"
 BASHRC_MARKER_BEGIN="# >>> autonomous-agent-bootstrap >>>"
 BASHRC_MARKER_END="# <<< autonomous-agent-bootstrap <<<"
+DEFAULT_CLAUDE_CODE_MODEL="claude-opus-4-7"
 
 log() { printf '[bootstrap] %s\n' "$*"; }
 warn() { printf '[bootstrap] WARN: %s\n' "$*" >&2; }
@@ -116,9 +151,10 @@ write_settings() {
         cp "${SETTINGS_FILE}" "${backup}"
         log "backed up existing settings.json -> ${backup}"
     fi
-    cat > "${SETTINGS_FILE}" <<'JSON'
+    local model="${AAB_CLAUDE_CODE_MODEL:-$DEFAULT_CLAUDE_CODE_MODEL}"
+    cat > "${SETTINGS_FILE}" <<JSON
 {
-  "model": "claude-opus-4-7",
+  "model": "${model}",
   "effortLevel": "max",
   "permissions": {
     "defaultMode": "bypassPermissions"
@@ -130,7 +166,7 @@ write_settings() {
   }
 }
 JSON
-    log "wrote ${SETTINGS_FILE}"
+    log "wrote ${SETTINGS_FILE} (model=${model})"
 }
 
 # ---------------------------------------------------------------------------
@@ -236,28 +272,87 @@ update_bashrc() {
         mv "$tmp" "${BASHRC}"
         log "replaced existing autonomous-agent-bootstrap block in ${BASHRC}"
     fi
+
+    local provider="${AAB_CLAUDE_CODE_INFERENCE_PROVIDER:-anthropic}"
+    if [ "$provider" != "anthropic" ] && [ "$provider" != "third-party" ]; then
+        warn "AAB_CLAUDE_CODE_INFERENCE_PROVIDER='${provider}' is not 'anthropic' or 'third-party'; defaulting to 'anthropic'"
+        provider="anthropic"
+    fi
+    local model="${AAB_CLAUDE_CODE_MODEL:-$DEFAULT_CLAUDE_CODE_MODEL}"
+    local third_party_prefix="${AAB_CLAUDE_CODE_MODEL_THIRD_PARTY_PREFIX:-}"
+    local third_party_model="${third_party_prefix}${model}"
+
     {
         printf '\n%s\n' "${BASHRC_MARKER_BEGIN}"
-        cat <<'EOS'
-# Sources env file created by the Claude Code native installer, ensures
-# ~/.local/bin is on PATH, and makes every interactive 'claude' invocation
-# skip the permission prompt so the agent can run unattended.
-if [ -f "$HOME/.local/bin/env" ]; then
-    . "$HOME/.local/bin/env"
-fi
-export PATH="$HOME/.local/bin:$PATH"
-export CLAUDE_CODE_SANDBOXED=1
-alias claude='claude --dangerously-skip-permissions'
-EOS
-        if [ -n "${ANTHROPIC_API_KEY:-}" ]; then
-            printf 'export ANTHROPIC_API_KEY=%q\n' "$ANTHROPIC_API_KEY"
-        fi
+        printf '%s\n' \
+            '# Sources env file created by the Claude Code native installer, ensures' \
+            "# ~/.local/bin is on PATH, and makes every interactive 'claude' invocation" \
+            '# skip the permission prompt so the agent can run unattended.' \
+            'if [ -f "$HOME/.local/bin/env" ]; then' \
+            '    . "$HOME/.local/bin/env"' \
+            'fi' \
+            'export PATH="$HOME/.local/bin:$PATH"' \
+            'export CLAUDE_CODE_SANDBOXED=1' \
+            "alias claude='claude --dangerously-skip-permissions'"
         if [ -n "${GH_TOKEN:-}" ]; then
             printf 'export GH_TOKEN=%q\n' "$GH_TOKEN"
         fi
+
+        # Inner managed block — rewritten in place by
+        # claude_code_switch_inference_provider below.
+        printf '\n# >>> autonomous-agent-bootstrap AAB_CLAUDE_CODE_INFERENCE_PROVIDER >>>\n'
+        printf 'AAB_CLAUDE_CODE_INFERENCE_PROVIDER="%s"\n' "$provider"
+        printf '# <<< autonomous-agent-bootstrap AAB_CLAUDE_CODE_INFERENCE_PROVIDER <<<\n\n'
+
+        printf 'if [ "${AAB_CLAUDE_CODE_INFERENCE_PROVIDER}" = "anthropic" ]; then\n'
+        printf '    unset ANTHROPIC_BASE_URL\n'
+        printf '    unset ANTHROPIC_AUTH_TOKEN\n'
+        printf '    unset CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS\n'
+        if [ -n "${ANTHROPIC_API_KEY:-}" ]; then
+            printf '    export ANTHROPIC_API_KEY=%q\n' "$ANTHROPIC_API_KEY"
+        fi
+        printf '    export ANTHROPIC_MODEL=%q\n' "$model"
+        printf 'else\n'
+        printf '    unset ANTHROPIC_API_KEY\n'
+        if [ -n "${ANTHROPIC_BASE_URL:-}" ]; then
+            printf '    export ANTHROPIC_BASE_URL=%q\n' "$ANTHROPIC_BASE_URL"
+        fi
+        if [ -n "${ANTHROPIC_AUTH_TOKEN:-}" ]; then
+            printf '    export ANTHROPIC_AUTH_TOKEN=%q\n' "$ANTHROPIC_AUTH_TOKEN"
+        fi
+        printf '    export ANTHROPIC_MODEL=%q\n' "$third_party_model"
+        printf '    export CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS=1\n'
+        printf 'fi\n\n'
+
+        printf '%s\n' \
+            'claude_code_switch_inference_provider() {' \
+            '    local new_provider="$1"' \
+            '    if [ "$new_provider" != "anthropic" ] && [ "$new_provider" != "third-party" ]; then' \
+            '        echo "usage: claude_code_switch_inference_provider anthropic|third-party" >&2' \
+            '        return 1' \
+            '    fi' \
+            '    local bashrc="${HOME}/.bashrc"' \
+            '    local begin="# >>> autonomous-agent-bootstrap AAB_CLAUDE_CODE_INFERENCE_PROVIDER >>>"' \
+            '    local end="# <<< autonomous-agent-bootstrap AAB_CLAUDE_CODE_INFERENCE_PROVIDER <<<"' \
+            '    if ! grep -qF "$begin" "$bashrc"; then' \
+            '        echo "claude_code_switch_inference_provider: marker not found in $bashrc" >&2' \
+            '        return 1' \
+            '    fi' \
+            '    local tmp' \
+            '    tmp=$(mktemp) || return 1' \
+            '    awk -v begin="$begin" -v end="$end" -v provider="$new_provider" '\''' \
+            '        $0 == begin { in_block=1; print; print "AAB_CLAUDE_CODE_INFERENCE_PROVIDER=\"" provider "\""; next }' \
+            '        $0 == end   { in_block=0; print; next }' \
+            '        in_block    { next }' \
+            '                    { print }' \
+            '    '\'' "$bashrc" > "$tmp" || { rm -f "$tmp"; return 1; }' \
+            '    mv "$tmp" "$bashrc"' \
+            '    # shellcheck disable=SC1090' \
+            '    . "$bashrc"' \
+            '}'
         printf '%s\n' "${BASHRC_MARKER_END}"
     } >> "${BASHRC}"
-    log "wrote autonomous-agent-bootstrap block to ${BASHRC}"
+    log "wrote autonomous-agent-bootstrap block to ${BASHRC} (provider=${provider}, model=${model})"
 }
 
 main() {
