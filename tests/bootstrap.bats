@@ -13,7 +13,8 @@ setup() {
           AAB_CLAUDE_CODE_MODEL_THIRD_PARTY_PREFIX \
           ANTHROPIC_API_KEY ANTHROPIC_BASE_URL ANTHROPIC_AUTH_TOKEN \
           GH_TOKEN GIT_AUTHOR_NAME GIT_AUTHOR_EMAIL \
-          AAB_CLAUDE_CODE_PLUGINS_FILE AAB_CLAUDE_CODE_PLUGINS_URL
+          AAB_CLAUDE_CODE_PLUGINS_FILE AAB_CLAUDE_CODE_PLUGINS_URL \
+          GH_AUTH_SSH_PRIVATE_KEY_B64 GIT_SIGNING_PRIVATE_KEY_B64
     # shellcheck disable=SC1091
     source "$REPO_ROOT/bootstrap.bash"
 }
@@ -319,4 +320,191 @@ assert "acme-public" in d.get("extraKnownMarketplaces", {}), d
 repos = {m["source"]["repo"] for m in d.get("extraKnownMarketplaces", {}).values()}
 assert "private/no-access" not in repos, repos
 PY
+}
+
+# ---------------------------------------------------------------------------
+# install_auth_ssh_key / install_signing_ssh_key: cover the two distinct
+# roles (GitHub SSH auth vs git commit/tag signing), including:
+#   - skip-on-unset for each
+#   - correct file modes on both key pairs
+#   - auth writes a managed block in ~/.ssh/config mapping github.com to
+#     id_aab_auth; signing leaves ~/.ssh/config alone
+#   - signing configures git signing; auth leaves git signing alone
+#   - idempotent re-runs (auth managed block is size-stable)
+#   - pre-existing ~/.ssh/config entries outside the block are preserved
+#   - invalid base64 and not-an-SSH-key input produce warn-and-skip
+# ---------------------------------------------------------------------------
+
+# Generates a valid ed25519 private key at <path> and echoes its base64
+# encoding. The matching .pub is written next to <path> by ssh-keygen.
+gen_test_ssh_key_b64() {
+    local path="${1:-$TEST_HOME/generated_key}"
+    command -v ssh-keygen >/dev/null || skip "precondition: ssh-keygen must exist"
+    ssh-keygen -t ed25519 -N "" -q -C "aab-test" -f "$path"
+    base64 -w0 < "$path"
+}
+
+@test "install_auth_ssh_key is a no-op when GH_AUTH_SSH_PRIVATE_KEY_B64 is unset" {
+    run install_auth_ssh_key
+    [ "$status" -eq 0 ]
+    [ ! -e "$AUTH_KEY" ]
+    [ ! -e "$SSH_CONFIG" ]
+}
+
+@test "install_signing_ssh_key is a no-op when GIT_SIGNING_PRIVATE_KEY_B64 is unset" {
+    run install_signing_ssh_key
+    [ "$status" -eq 0 ]
+    [ ! -e "$SIGNING_KEY" ]
+    # Signing does NOT touch ~/.ssh/config regardless — double-check nothing appeared.
+    [ ! -e "$SSH_CONFIG" ]
+    # And git signing config must not be set.
+    [ -z "$(git config --global --get user.signingkey 2>/dev/null || true)" ]
+}
+
+@test "install_auth_ssh_key writes id_aab_auth (0600) and id_aab_auth.pub (0644)" {
+    GH_AUTH_SSH_PRIVATE_KEY_B64=$(gen_test_ssh_key_b64)
+    export GH_AUTH_SSH_PRIVATE_KEY_B64
+    install_auth_ssh_key
+
+    [ -f "$AUTH_KEY" ]
+    [ -f "$AUTH_KEY_PUB" ]
+    [ "$(stat -c '%a' "$AUTH_KEY")" = "600" ]
+    [ "$(stat -c '%a' "$AUTH_KEY_PUB")" = "644" ]
+    [ "$(stat -c '%a' "$SSH_DIR")" = "700" ]
+    diff <(sort "$AUTH_KEY_PUB") <(sort "$TEST_HOME/generated_key.pub")
+}
+
+@test "install_signing_ssh_key writes id_aab_signing (0600) and id_aab_signing.pub (0644)" {
+    GIT_SIGNING_PRIVATE_KEY_B64=$(gen_test_ssh_key_b64)
+    export GIT_SIGNING_PRIVATE_KEY_B64
+    install_signing_ssh_key
+
+    [ -f "$SIGNING_KEY" ]
+    [ -f "$SIGNING_KEY_PUB" ]
+    [ "$(stat -c '%a' "$SIGNING_KEY")" = "600" ]
+    [ "$(stat -c '%a' "$SIGNING_KEY_PUB")" = "644" ]
+    diff <(sort "$SIGNING_KEY_PUB") <(sort "$TEST_HOME/generated_key.pub")
+}
+
+@test "install_auth_ssh_key writes a managed block in ~/.ssh/config mapping github.com to id_aab_auth" {
+    GH_AUTH_SSH_PRIVATE_KEY_B64=$(gen_test_ssh_key_b64)
+    export GH_AUTH_SSH_PRIVATE_KEY_B64
+    install_auth_ssh_key
+
+    [ -f "$SSH_CONFIG" ]
+    grep -qF "$SSH_MARKER_BEGIN" "$SSH_CONFIG"
+    grep -qF "$SSH_MARKER_END" "$SSH_CONFIG"
+    grep -qE "^Host github.com$" "$SSH_CONFIG"
+    grep -qF "IdentityFile $AUTH_KEY" "$SSH_CONFIG"
+    grep -qE "^[[:space:]]+IdentitiesOnly yes$" "$SSH_CONFIG"
+    [ "$(stat -c '%a' "$SSH_CONFIG")" = "600" ]
+}
+
+@test "install_auth_ssh_key does NOT configure git signing" {
+    command -v git >/dev/null || skip "precondition: git must exist"
+    GH_AUTH_SSH_PRIVATE_KEY_B64=$(gen_test_ssh_key_b64)
+    export GH_AUTH_SSH_PRIVATE_KEY_B64
+    install_auth_ssh_key
+
+    # No signing config should have been written.
+    [ -z "$(git config --global --get gpg.format 2>/dev/null || true)" ]
+    [ -z "$(git config --global --get user.signingkey 2>/dev/null || true)" ]
+    [ -z "$(git config --global --get commit.gpgsign 2>/dev/null || true)" ]
+    [ -z "$(git config --global --get tag.gpgsign 2>/dev/null || true)" ]
+}
+
+@test "install_signing_ssh_key does NOT touch ~/.ssh/config" {
+    GIT_SIGNING_PRIVATE_KEY_B64=$(gen_test_ssh_key_b64)
+    export GIT_SIGNING_PRIVATE_KEY_B64
+    install_signing_ssh_key
+
+    [ ! -e "$SSH_CONFIG" ]
+}
+
+@test "install_signing_ssh_key configures git SSH signing (gpg.format, signingkey, commit/tag.gpgsign)" {
+    command -v git >/dev/null || skip "precondition: git must exist"
+    GIT_SIGNING_PRIVATE_KEY_B64=$(gen_test_ssh_key_b64)
+    export GIT_SIGNING_PRIVATE_KEY_B64
+    install_signing_ssh_key
+
+    [ "$(git config --global --get gpg.format)" = "ssh" ]
+    [ "$(git config --global --get user.signingkey)" = "$SIGNING_KEY_PUB" ]
+    [ "$(git config --global --get commit.gpgsign)" = "true" ]
+    [ "$(git config --global --get tag.gpgsign)" = "true" ]
+}
+
+@test "install_auth_ssh_key is idempotent (second run: single managed block, file size stable)" {
+    GH_AUTH_SSH_PRIVATE_KEY_B64=$(gen_test_ssh_key_b64)
+    export GH_AUTH_SSH_PRIVATE_KEY_B64
+    install_auth_ssh_key
+    local size1
+    size1=$(wc -c < "$SSH_CONFIG")
+
+    install_auth_ssh_key
+    local begin_count end_count size2
+    begin_count=$(grep -cF "$SSH_MARKER_BEGIN" "$SSH_CONFIG")
+    end_count=$(grep -cF "$SSH_MARKER_END" "$SSH_CONFIG")
+    size2=$(wc -c < "$SSH_CONFIG")
+    [ "$begin_count" -eq 1 ]
+    [ "$end_count" -eq 1 ]
+    [ "$size1" -eq "$size2" ]
+}
+
+@test "install_auth_ssh_key preserves pre-existing non-managed content in ~/.ssh/config" {
+    mkdir -p "$SSH_DIR"
+    cat > "$SSH_CONFIG" <<'EOF'
+Host gitlab.com
+    IdentityFile ~/.ssh/id_ed25519_gitlab
+    User git
+EOF
+    GH_AUTH_SSH_PRIVATE_KEY_B64=$(gen_test_ssh_key_b64)
+    export GH_AUTH_SSH_PRIVATE_KEY_B64
+    install_auth_ssh_key
+
+    # Original content still present.
+    grep -qE "^Host gitlab.com$" "$SSH_CONFIG"
+    grep -qF "IdentityFile ~/.ssh/id_ed25519_gitlab" "$SSH_CONFIG"
+    # Managed block appended.
+    grep -qF "$SSH_MARKER_BEGIN" "$SSH_CONFIG"
+    grep -qE "^Host github.com$" "$SSH_CONFIG"
+}
+
+@test "install_auth_ssh_key warns and skips on invalid-base64 input" {
+    export GH_AUTH_SSH_PRIVATE_KEY_B64="this is not base64!@#"
+    run install_auth_ssh_key
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"GH_AUTH_SSH_PRIVATE_KEY_B64 is not valid base64"* ]] \
+        || [[ "$output" == *"GH_AUTH_SSH_PRIVATE_KEY_B64 did not decode to a valid SSH private key"* ]]
+    [ ! -e "$AUTH_KEY" ]
+}
+
+@test "install_signing_ssh_key warns and skips on decoded-garbage input" {
+    export GIT_SIGNING_PRIVATE_KEY_B64="$(printf 'not-an-ssh-key' | base64 -w0)"
+    run install_signing_ssh_key
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"GIT_SIGNING_PRIVATE_KEY_B64 did not decode to a valid SSH private key"* ]]
+    [ ! -e "$SIGNING_KEY" ]
+    [ ! -e "$SIGNING_KEY_PUB" ]
+}
+
+@test "auth and signing keys can be set independently (different keys, both installed)" {
+    # Generate two distinct keys, set each env var to a different encoding.
+    GH_AUTH_SSH_PRIVATE_KEY_B64=$(gen_test_ssh_key_b64 "$TEST_HOME/auth_key")
+    GIT_SIGNING_PRIVATE_KEY_B64=$(gen_test_ssh_key_b64 "$TEST_HOME/sign_key")
+    export GH_AUTH_SSH_PRIVATE_KEY_B64 GIT_SIGNING_PRIVATE_KEY_B64
+
+    install_auth_ssh_key
+    install_signing_ssh_key
+
+    # Both keys are on disk, at different paths.
+    [ -f "$AUTH_KEY" ]
+    [ -f "$SIGNING_KEY" ]
+    ! diff -q "$AUTH_KEY" "$SIGNING_KEY"
+
+    # Auth wiring in ~/.ssh/config points at the auth key, not the signing key.
+    grep -qF "IdentityFile $AUTH_KEY" "$SSH_CONFIG"
+    ! grep -qF "IdentityFile $SIGNING_KEY" "$SSH_CONFIG"
+
+    # Git signing config points at the signing key, not the auth key.
+    [ "$(git config --global --get user.signingkey)" = "$SIGNING_KEY_PUB" ]
 }

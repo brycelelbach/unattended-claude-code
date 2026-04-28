@@ -25,6 +25,13 @@
 #   7. Configures git: user.name, user.email (from env vars), and registers
 #      gh as the github.com credential helper so `git clone` / `push` reuse
 #      the gh CLI's stored token.
+#  7b. If GH_AUTH_SSH_PRIVATE_KEY_B64 is set, decodes it to
+#      ~/.ssh/id_aab_auth and writes a managed block to ~/.ssh/config
+#      pointing github.com at that key.
+#  7c. If GIT_SIGNING_PRIVATE_KEY_B64 is set, decodes it to
+#      ~/.ssh/id_aab_signing and configures git to sign commits / tags
+#      with it (gpg.format=ssh, user.signingkey, commit.gpgsign,
+#      tag.gpgsign). Does NOT touch ~/.ssh/config — signing role only.
 #   8. Appends PATH / alias / env exports to ~/.bashrc (managed block) so
 #      interactive shells pick up ~/.local/bin, run `claude` with
 #      --dangerously-skip-permissions, and — if ANTHROPIC_API_KEY was set
@@ -73,6 +80,23 @@
 #                       `git config --global user.name`.
 #   GIT_AUTHOR_EMAIL    Email address attached to git commits. Written to
 #                       `git config --global user.email`.
+#   GH_AUTH_SSH_PRIVATE_KEY_B64
+#                       Base64-encoded OpenSSH private key used as the
+#                       github.com authentication identity. Decoded to
+#                       ~/.ssh/id_aab_auth (mode 0600); its public half
+#                       is written to ~/.ssh/id_aab_auth.pub (mode 0644);
+#                       a managed block in ~/.ssh/config points github.com
+#                       at it with IdentitiesOnly=yes. Does NOT configure
+#                       git signing.
+#   GIT_SIGNING_PRIVATE_KEY_B64
+#                       Base64-encoded OpenSSH private key used ONLY as
+#                       the git commit / tag signing key. Decoded to
+#                       ~/.ssh/id_aab_signing (mode 0600); public half at
+#                       ~/.ssh/id_aab_signing.pub (mode 0644). git is
+#                       configured with gpg.format=ssh,
+#                       user.signingkey=~/.ssh/id_aab_signing.pub,
+#                       commit.gpgsign=true, tag.gpgsign=true. Does NOT
+#                       touch ~/.ssh/config.
 #   AAB_CLAUDE_CODE_PLUGINS_FILE
 #                       Path to a local claude_code_plugins.txt listing
 #                       plugin marketplaces to install. Read directly when
@@ -99,6 +123,14 @@ BREV_ONBOARDING="${BREV_DIR}/onboarding_step.json"
 BASHRC="${HOME}/.bashrc"
 BASHRC_MARKER_BEGIN="# >>> autonomous-agent-bootstrap >>>"
 BASHRC_MARKER_END="# <<< autonomous-agent-bootstrap <<<"
+SSH_DIR="${HOME}/.ssh"
+SSH_CONFIG="${SSH_DIR}/config"
+AUTH_KEY="${SSH_DIR}/id_aab_auth"
+AUTH_KEY_PUB="${AUTH_KEY}.pub"
+SIGNING_KEY="${SSH_DIR}/id_aab_signing"
+SIGNING_KEY_PUB="${SIGNING_KEY}.pub"
+SSH_MARKER_BEGIN="# >>> autonomous-agent-bootstrap >>>"
+SSH_MARKER_END="# <<< autonomous-agent-bootstrap <<<"
 DEFAULT_CLAUDE_CODE_MODEL="claude-opus-4-7"
 
 log() { printf '[bootstrap] %s\n' "$*"; }
@@ -300,6 +332,148 @@ configure_git() {
     if command -v gh >/dev/null 2>&1; then
         git config --global 'credential.https://github.com.helper' '!gh auth git-credential'
         log "registered gh as github.com credential helper"
+    fi
+}
+
+# ---------------------------------------------------------------------------
+# 7b. Install SSH keys supplied via $GH_AUTH_SSH_PRIVATE_KEY_B64 (for
+# github.com auth: clone/push over SSH) and/or $GIT_SIGNING_PRIVATE_KEY_B64
+# (for git commit/tag signing). These are two separate roles and the
+# bootstrap treats them independently: either may be set, or both, or
+# neither. The signing key path does NOT touch ~/.ssh/config.
+# ---------------------------------------------------------------------------
+
+# _ensure_ssh_keygen: idempotently install openssh-client if ssh-keygen is
+# missing. Returns 0 iff ssh-keygen is callable afterward.
+_ensure_ssh_keygen() {
+    command -v ssh-keygen >/dev/null 2>&1 && return 0
+    if ! command -v apt-get >/dev/null 2>&1; then
+        warn "ssh-keygen not installed and apt-get unavailable"
+        return 1
+    fi
+    if [ -n "$SUDO" ] && ! sudo -n true 2>/dev/null; then
+        warn "ssh-keygen not installed and passwordless sudo unavailable"
+        return 1
+    fi
+    log "installing openssh-client for ssh-keygen"
+    $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends openssh-client
+    command -v ssh-keygen >/dev/null 2>&1
+}
+
+# _decode_ssh_key <encoded> <dest> <label>
+# Decodes a base64-encoded OpenSSH private key to <dest> (mode 0600) and
+# derives the public half to <dest>.pub (mode 0644). <label> is the env
+# var name for log / warn messages. Returns 0 on success. On failure,
+# cleans up any partial files and warns with <label> for context.
+_decode_ssh_key() {
+    local encoded="$1" dest="$2" label="$3"
+    local dest_pub="${dest}.pub"
+
+    mkdir -p "$SSH_DIR"
+    chmod 0700 "$SSH_DIR"
+
+    if ! printf '%s' "$encoded" | base64 -d > "$dest" 2>/dev/null; then
+        warn "${label} is not valid base64; skipping"
+        rm -f "$dest"
+        return 1
+    fi
+    chmod 0600 "$dest"
+
+    if ! ssh-keygen -y -f "$dest" > "$dest_pub" 2>/dev/null; then
+        warn "${label} did not decode to a valid SSH private key; skipping"
+        rm -f "$dest" "$dest_pub"
+        return 1
+    fi
+    chmod 0644 "$dest_pub"
+    return 0
+}
+
+# _rewrite_ssh_config_block: idempotently rewrite the managed block in
+# ~/.ssh/config so github.com uses the supplied IdentityFile. Strips any
+# previous managed block plus its trailing padding so the file size stays
+# stable across re-runs and pre-existing entries outside the block are
+# preserved.
+_rewrite_ssh_config_block() {
+    local key="$1"
+    touch "$SSH_CONFIG"
+    python3 - "$SSH_CONFIG" "$key" "$SSH_MARKER_BEGIN" "$SSH_MARKER_END" <<'PY'
+import sys
+path, key, begin, end = sys.argv[1:5]
+with open(path) as f:
+    lines = f.read().splitlines()
+out = []
+in_block = False
+for line in lines:
+    if line == begin:
+        in_block = True
+        continue
+    if line == end:
+        in_block = False
+        continue
+    if not in_block:
+        out.append(line)
+while out and out[-1].strip() == "":
+    out.pop()
+block = [
+    begin,
+    "Host github.com",
+    f"    IdentityFile {key}",
+    "    IdentitiesOnly yes",
+    end,
+]
+parts = []
+if out:
+    parts.append("\n".join(out))
+    parts.append("")  # one blank line between user content and our block
+parts.append("\n".join(block))
+with open(path, "w") as f:
+    f.write("\n".join(parts) + "\n")
+PY
+    chmod 0600 "$SSH_CONFIG"
+}
+
+# install_auth_ssh_key: decode $GH_AUTH_SSH_PRIVATE_KEY_B64 to
+# ~/.ssh/id_aab_auth and wire it as the IdentityFile for github.com in
+# ~/.ssh/config. Does NOT touch git signing config. Silent no-op when the
+# env var is unset.
+install_auth_ssh_key() {
+    local encoded="${GH_AUTH_SSH_PRIVATE_KEY_B64:-}"
+    [ -z "$encoded" ] && return
+
+    if ! command -v base64 >/dev/null 2>&1; then
+        warn "base64 not installed; cannot decode GH_AUTH_SSH_PRIVATE_KEY_B64; skipping"
+        return
+    fi
+    _ensure_ssh_keygen || { warn "skipping GH_AUTH_SSH_PRIVATE_KEY_B64 install (ssh-keygen unavailable)"; return; }
+    _decode_ssh_key "$encoded" "$AUTH_KEY" "GH_AUTH_SSH_PRIVATE_KEY_B64" || return 0
+
+    _rewrite_ssh_config_block "$AUTH_KEY"
+    log "installed GitHub auth SSH key at $AUTH_KEY (pub $AUTH_KEY_PUB); wired github.com identity in $SSH_CONFIG"
+}
+
+# install_signing_ssh_key: decode $GIT_SIGNING_PRIVATE_KEY_B64 to
+# ~/.ssh/id_aab_signing and configure git to sign commits/tags with it.
+# Does NOT touch ~/.ssh/config — this key is for signing only. Silent
+# no-op when the env var is unset.
+install_signing_ssh_key() {
+    local encoded="${GIT_SIGNING_PRIVATE_KEY_B64:-}"
+    [ -z "$encoded" ] && return
+
+    if ! command -v base64 >/dev/null 2>&1; then
+        warn "base64 not installed; cannot decode GIT_SIGNING_PRIVATE_KEY_B64; skipping"
+        return
+    fi
+    _ensure_ssh_keygen || { warn "skipping GIT_SIGNING_PRIVATE_KEY_B64 install (ssh-keygen unavailable)"; return; }
+    _decode_ssh_key "$encoded" "$SIGNING_KEY" "GIT_SIGNING_PRIVATE_KEY_B64" || return 0
+
+    if command -v git >/dev/null 2>&1; then
+        git config --global gpg.format ssh
+        git config --global user.signingkey "$SIGNING_KEY_PUB"
+        git config --global commit.gpgsign true
+        git config --global tag.gpgsign true
+        log "configured git to sign commits and tags with $SIGNING_KEY_PUB"
+    else
+        warn "git not installed; skipping SSH signing config"
     fi
 }
 
@@ -537,6 +711,8 @@ main() {
     skip_onboarding
     skip_brev_onboarding
     configure_git
+    install_auth_ssh_key
+    install_signing_ssh_key
     install_claude_code_plugins
     update_bashrc
     log "done. Open a new shell (or 'source ~/.bashrc') so the PATH / alias take effect."

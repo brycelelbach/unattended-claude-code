@@ -12,8 +12,13 @@ A single idempotent bash script that turns a fresh Linux host into a ready-to-us
    - `ANTHROPIC_API_KEY` pre-approved if provided (no first-run approval prompt)
    - `claude` aliased to `claude --dangerously-skip-permissions` in interactive shells
 2. **`gh` CLI** — latest release from the official `cli.github.com` apt repo (the distro-shipped `gh` predates `gh auth token` / `gh auth git-credential`).
-3. **git** — `user.name` / `user.email` set from env, and `gh` registered as the `github.com` credential helper so `git clone` / `git push` reuse the gh-stored token with no interactive prompt.
-4. **Claude Code plugins** — marketplaces listed in [`claude_code_plugins.txt`](./claude_code_plugins.txt) are registered in `~/.claude/settings.json`'s `extraKnownMarketplaces`, and the plugins they declare are flipped on in `enabledPlugins`. Claude Code fetches them on next launch, no prompt. Defaults ship [agitentic](https://github.com/brycelelbach/agitentic) and [autocuda](https://github.com/brycelelbach-private/autocuda) (private); add more by editing the file and re-running the bootstrap. Plugin repos can be public or private — the bootstrap fetches each marketplace manifest via `gh api` when `gh` is authenticated (picks up `GH_TOKEN` or `gh auth login` credentials) and falls back to unauthenticated `raw.githubusercontent.com` otherwise. Entries the caller lacks access to are logged and skipped; they do not fail the bootstrap.
+3. **git** — `user.name` / `user.email` set from env, and `gh` registered as the `github.com` credential helper so `git clone` / `git push` reuse the gh-stored token with no interactive prompt. If `GIT_SIGNING_PRIVATE_KEY_B64` is set, git is also configured to sign every commit and tag with that key (see [SSH keys](#ssh-keys)).
+4. **SSH keys for GitHub** — two independent optional env vars, each for a distinct role:
+   - `GH_AUTH_SSH_PRIVATE_KEY_B64` → the **authentication** identity. Decoded to `~/.ssh/id_aab_auth` (mode 0600) and wired as the `IdentityFile` for `github.com` in a managed block in `~/.ssh/config`.
+   - `GIT_SIGNING_PRIVATE_KEY_B64` → the **signing** key. Decoded to `~/.ssh/id_aab_signing` (mode 0600) and wired into git's `user.signingkey` / `commit.gpgsign` / `tag.gpgsign` config. Does **not** touch `~/.ssh/config`.
+
+   See [SSH keys](#ssh-keys) for how to generate, encode, and upload them.
+5. **Claude Code plugins** — marketplaces listed in [`claude_code_plugins.txt`](./claude_code_plugins.txt) are registered in `~/.claude/settings.json`'s `extraKnownMarketplaces`, and the plugins they declare are flipped on in `enabledPlugins`. Claude Code fetches them on next launch, no prompt. Defaults ship [agitentic](https://github.com/brycelelbach/agitentic) and [autocuda](https://github.com/brycelelbach-private/autocuda) (private); add more by editing the file and re-running the bootstrap. Plugin repos can be public or private — the bootstrap fetches each marketplace manifest via `gh api` when `gh` is authenticated (picks up `GH_TOKEN` or `gh auth login` credentials) and falls back to unauthenticated `raw.githubusercontent.com` otherwise. Entries the caller lacks access to are logged and skipped; they do not fail the bootstrap.
 
 ## Requirements
 
@@ -87,6 +92,8 @@ claude -p "Say hello from Claude Code"
 
 If you didn't pass `GH_TOKEN`, sign in to gh (`gh auth login`) before using GitHub.
 
+To wire in GitHub SSH keys, export `GH_AUTH_SSH_PRIVATE_KEY_B64` (auth identity for `git`-over-SSH) and/or `GIT_SIGNING_PRIVATE_KEY_B64` (commit & tag signing) before running the bootstrap. See [SSH keys](#ssh-keys) for details.
+
 ## Switching inference providers
 
 The bootstrap writes a `claude_code_switch_inference_provider` shell function into `~/.bashrc`. Call it with `anthropic` or `third-party` to flip the active provider — it rewrites the `AAB_CLAUDE_CODE_INFERENCE_PROVIDER` value in your `~/.bashrc` and re-sources it:
@@ -112,6 +119,8 @@ All optional. Anything unset is simply skipped.
 | `GH_TOKEN` | Exported from the `~/.bashrc` managed block. `gh` reads it from the environment directly, and since `gh auth git-credential` is registered as the `github.com` credential helper, `git clone` / `git push` reuse it automatically. |
 | `GIT_AUTHOR_NAME` | `git config --global user.name` |
 | `GIT_AUTHOR_EMAIL` | `git config --global user.email` |
+| `GH_AUTH_SSH_PRIVATE_KEY_B64` | Base64-encoded OpenSSH private key used as the `github.com` **authentication** identity. Decoded to `~/.ssh/id_aab_auth` (mode 0600); public half at `~/.ssh/id_aab_auth.pub`. A managed block in `~/.ssh/config` wires it as `IdentityFile` for `github.com` with `IdentitiesOnly yes`. Does **not** touch git signing config. See [SSH keys](#ssh-keys). |
+| `GIT_SIGNING_PRIVATE_KEY_B64` | Base64-encoded OpenSSH private key used **only** as the git commit/tag **signing** key. Decoded to `~/.ssh/id_aab_signing` (mode 0600); public half at `~/.ssh/id_aab_signing.pub`. Sets `gpg.format=ssh`, `user.signingkey=~/.ssh/id_aab_signing.pub`, `commit.gpgsign=true`, `tag.gpgsign=true`. Does **not** touch `~/.ssh/config`. See [SSH keys](#ssh-keys). |
 | `AAB_CLAUDE_CODE_PLUGINS_FILE` | Path to a local `claude_code_plugins.txt`. If set and the file exists, it's used instead of fetching the canonical list. |
 | `AAB_CLAUDE_CODE_PLUGINS_URL` | URL of the plugin list to fetch when `AAB_CLAUDE_CODE_PLUGINS_FILE` is unset. Defaults to `claude_code_plugins.txt` on `main` of this repo. |
 
@@ -128,6 +137,72 @@ To add a plugin: append its marketplace's `owner/repo` to `claude_code_plugins.t
 
 If the bootstrap can't fetch a marketplace manifest — usually because the repo is private and the active GitHub credential doesn't grant access — it logs the skip and moves on. Plugin install is treated as optional; an inaccessible entry does not fail the bootstrap.
 
+## SSH keys
+
+The bootstrap handles two independent optional env vars for GitHub SSH keys, each governing a distinct role. They can be set together, individually, or not at all.
+
+| Env var | Role | Writes private key to | Touches `~/.ssh/config`? | Touches git signing config? |
+| --- | --- | --- | --- | --- |
+| `GH_AUTH_SSH_PRIVATE_KEY_B64` | GitHub authentication (clone/push/pull over SSH) | `~/.ssh/id_aab_auth` | **Yes** — managed block wires `github.com` → `IdentityFile` | No |
+| `GIT_SIGNING_PRIVATE_KEY_B64` | git commit / tag signing | `~/.ssh/id_aab_signing` | **No** | **Yes** — `gpg.format=ssh`, `user.signingkey`, `commit.gpgsign=true`, `tag.gpgsign=true` |
+
+Keeping them separate lets you:
+
+- Use an existing GitHub auth identity (provisioned by SSO, a password manager, or a hardware key) while the bootstrap manages only the signing key.
+- Rotate one role without touching the other.
+- Avoid granting read/write access to every repo your GitHub account can reach just because you wanted a signing key installed — the signing key is a low-privilege artifact whose only job is to produce a verifiable signature.
+
+Both can hold the same key if you want, but the two env vars are the recommended way to keep the roles distinct.
+
+### What each role writes
+
+**`GH_AUTH_SSH_PRIVATE_KEY_B64`** — wires a managed block into `~/.ssh/config` for `github.com`:
+
+```
+# >>> autonomous-agent-bootstrap >>>
+Host github.com
+    IdentityFile ~/.ssh/id_aab_auth
+    IdentitiesOnly yes
+# <<< autonomous-agent-bootstrap <<<
+```
+
+Pre-existing entries in `~/.ssh/config` (other `Host` blocks, `IdentityFile` lines for other hosts) are preserved — re-runs rewrite **only** the managed block between the marker pair.
+
+**`GIT_SIGNING_PRIVATE_KEY_B64`** — sets the following in `~/.gitconfig` via `git config --global`:
+
+```
+gpg.format        = ssh
+user.signingkey   = ~/.ssh/id_aab_signing.pub
+commit.gpgsign    = true
+tag.gpgsign       = true
+```
+
+If you don't want every commit/tag signed, drop `commit.gpgsign` / `tag.gpgsign` after bootstrap (`git config --global --unset commit.gpgsign`, etc.), or flip them to `false`. The key on disk stays put; only the auto-signing preference changes.
+
+### Generating and encoding a key
+
+Generate a new ed25519 key (passphrase omitted so the bootstrap can read it non-interactively), then base64-encode the **private** key:
+
+```bash
+ssh-keygen -t ed25519 -C "you@example.com" -f ~/.ssh/new_key -N ""
+base64 -w0 < ~/.ssh/new_key                        # Linux (GNU coreutils)
+base64      < ~/.ssh/new_key | tr -d '\n'          # macOS / BSD
+```
+
+Copy the single-line output and set it on whichever env var matches the role:
+
+```bash
+export GH_AUTH_SSH_PRIVATE_KEY_B64="AAAA...=="          # auth identity
+export GIT_SIGNING_PRIVATE_KEY_B64="AAAA...=="          # signing key
+```
+
+Upload the matching **public** key (`~/.ssh/new_key.pub`) to GitHub under *Settings → SSH and GPG keys → New SSH key*. GitHub lets you choose the key type:
+
+- *Authentication Key* — for `git clone git@github.com:…`, `git push` over SSH, etc. Use this for the auth key.
+- *Signing Key* — for GitHub to display ✅ next to signed commits and tags. Use this for the signing key.
+
+You can upload the same public key under both types if you want a single blob to serve both roles. You can also upload different keys for each — this is the recommended setup if the auth identity is shared with other tooling (e.g. SSO-provisioned) and shouldn't double as a signing artifact.
+
 ## What the script touches
 
 | Path | How |
@@ -136,8 +211,11 @@ If the bootstrap can't fetch a marketplace manifest — usually because the repo
 | `~/.claude/settings.json` | Overwritten with unattended-mode defaults, then merged with `extraKnownMarketplaces` / `enabledPlugins` entries for each plugin in `claude_code_plugins.txt`. Existing file backed up to `settings.json.bak.<timestamp>` before the rewrite. |
 | `~/.claude.json` | Merged — `hasCompletedOnboarding=true` and optional `customApiKeyResponses.approved` entry. Existing file backed up to `.claude.json.bak.<timestamp>`. |
 | `~/.bashrc` | Managed block between `# >>> autonomous-agent-bootstrap >>>` and `# <<< autonomous-agent-bootstrap <<<`. Rewritten wholesale on every run. |
-| `~/.gitconfig` | `user.name`, `user.email`, and `credential.https://github.com.helper`. |
-| System-wide | `gh` package, its apt source + signing keyring (requires `sudo`; script skips with a warning if passwordless `sudo` isn't available). |
+| `~/.gitconfig` | `user.name`, `user.email`, and `credential.https://github.com.helper`. When `GIT_SIGNING_PRIVATE_KEY_B64` is set, also `gpg.format=ssh`, `user.signingkey=~/.ssh/id_aab_signing.pub`, `commit.gpgsign=true`, `tag.gpgsign=true`. |
+| `~/.ssh/id_aab_auth`, `~/.ssh/id_aab_auth.pub` | Written only when `GH_AUTH_SSH_PRIVATE_KEY_B64` is set. Private key mode 0600, public key mode 0644, `~/.ssh` dir mode 0700. |
+| `~/.ssh/id_aab_signing`, `~/.ssh/id_aab_signing.pub` | Written only when `GIT_SIGNING_PRIVATE_KEY_B64` is set. Same mode layout as the auth pair. |
+| `~/.ssh/config` | Managed block (same `# >>> … <<<` marker pair as `~/.bashrc`) mapping `github.com` to `~/.ssh/id_aab_auth`. Only touched when `GH_AUTH_SSH_PRIVATE_KEY_B64` is set — the signing-only flow leaves `~/.ssh/config` alone. Pre-existing entries outside the managed block are preserved. |
+| System-wide | `gh` package, its apt source + signing keyring (requires `sudo`; script skips with a warning if passwordless `sudo` isn't available). `openssh-client` is also installed on demand when either SSH-key env var is set and `ssh-keygen` isn't already available. |
 
 ## Re-running
 
@@ -147,6 +225,7 @@ Safe to re-run. Each run matches the current environment:
 - `settings.json` and `.claude.json` are backed up (timestamped `.bak`) before being rewritten.
 - `gh` and `claude` are skipped if already installed.
 - `git config --global` is only touched for variables that are set.
+- The `~/.ssh/config` managed block is replaced in place on re-run; pre-existing entries outside the block are preserved. Re-running without `GH_AUTH_SSH_PRIVATE_KEY_B64` set leaves `~/.ssh/config` untouched — the block is **not** removed automatically. To turn signing off, use `git config --global --unset commit.gpgsign` (and similar) after dropping `GIT_SIGNING_PRIVATE_KEY_B64`.
 
 ## Running the tests
 
