@@ -17,9 +17,20 @@ A single idempotent bash script that turns a fresh Linux host into a ready-to-us
 
 ## Requirements
 
-**To run the bootstrap:** Ubuntu/Debian (or Fedora/RHEL) host with `bash`, `curl`, `python3`, `git`, and `sudo` (passwordless is nicest — the script warns and skips the `gh` install otherwise). The `gh` CLI is installed by the script itself.
+**To run the bootstrap:**
 
-**To run the tests** (see [Running the tests](#running-the-tests)): `bash`, `python3`, `curl`, `git` — plus `shellcheck` for lint, `bats` (≥1.2) for the unit suite, and `gitleaks` (pinned to v8.18.4 in CI) for the secret scan. The end-to-end job also needs `sudo` because it invokes `bootstrap.bash` for real.
+- Ubuntu/Debian (or Fedora/RHEL) host
+- `bash`, `curl`, `python3`, `git`
+- `sudo` — passwordless is nicest; the script warns and skips the `gh` install otherwise
+- The `gh` CLI is installed by the script itself
+
+**To run the tests** (see [Running the tests](#running-the-tests)):
+
+- `bash`, `python3`, `curl`, `git`
+- `shellcheck` — for lint
+- `bats` (≥1.2) — for the unit suite
+- `gitleaks` (pinned to v8.18.4 in CI) — for the secret scan
+- `sudo` — the end-to-end job invokes `bootstrap.bash` for real
 
 ## Quick start
 
