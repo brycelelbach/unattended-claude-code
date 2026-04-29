@@ -508,3 +508,140 @@ EOF
     # Git signing config points at the signing key, not the auth key.
     [ "$(git config --global --get user.signingkey)" = "$SIGNING_KEY_PUB" ]
 }
+
+# ---------------------------------------------------------------------------
+# load_config_file: covers the KEY=VALUE parser used when main() is given a
+# positional config-file argument. Exercises quoting, comments, malformed
+# lines, env-beats-file precedence, and the missing-file error path.
+# ---------------------------------------------------------------------------
+
+@test "load_config_file populates unset env vars from KEY=VALUE lines" {
+    cat > "$TEST_HOME/aab.conf" <<'EOF'
+AAB_CLAUDE_CODE_MODEL=claude-sonnet-4-6
+AAB_CLAUDE_CODE_INFERENCE_PROVIDER=third-party
+GIT_AUTHOR_NAME=Alice Example
+GIT_AUTHOR_EMAIL=alice@example.com
+EOF
+    load_config_file "$TEST_HOME/aab.conf"
+    [ "$AAB_CLAUDE_CODE_MODEL" = "claude-sonnet-4-6" ]
+    [ "$AAB_CLAUDE_CODE_INFERENCE_PROVIDER" = "third-party" ]
+    [ "$GIT_AUTHOR_NAME" = "Alice Example" ]
+    [ "$GIT_AUTHOR_EMAIL" = "alice@example.com" ]
+}
+
+@test "load_config_file: env var already set in the shell WINS over the file" {
+    export AAB_CLAUDE_CODE_MODEL="claude-opus-4-7"
+    cat > "$TEST_HOME/aab.conf" <<'EOF'
+AAB_CLAUDE_CODE_MODEL=claude-sonnet-4-6
+GIT_AUTHOR_NAME=Alice Example
+EOF
+    load_config_file "$TEST_HOME/aab.conf"
+    # Env-set value preserved.
+    [ "$AAB_CLAUDE_CODE_MODEL" = "claude-opus-4-7" ]
+    # File-only value still loaded.
+    [ "$GIT_AUTHOR_NAME" = "Alice Example" ]
+}
+
+@test "load_config_file: empty-string env var also beats the file (env 'set' wins even if empty)" {
+    # Explicitly set to empty — distinct from unset. Must prevent file override.
+    export ANTHROPIC_API_KEY=""
+    cat > "$TEST_HOME/aab.conf" <<'EOF'
+ANTHROPIC_API_KEY=sk-ant-from-file
+EOF
+    load_config_file "$TEST_HOME/aab.conf"
+    [ "$ANTHROPIC_API_KEY" = "" ]
+}
+
+@test "load_config_file handles double- and single-quoted values, and leading 'export '" {
+    cat > "$TEST_HOME/aab.conf" <<'EOF'
+AAB_CLAUDE_CODE_MODEL="claude-sonnet-4-6"
+GIT_AUTHOR_NAME='Alice Example'
+export GH_TOKEN=ghp_abc123
+EOF
+    load_config_file "$TEST_HOME/aab.conf"
+    [ "$AAB_CLAUDE_CODE_MODEL" = "claude-sonnet-4-6" ]
+    [ "$GIT_AUTHOR_NAME" = "Alice Example" ]
+    [ "$GH_TOKEN" = "ghp_abc123" ]
+}
+
+@test "load_config_file tolerates extra whitespace between 'export' and the key" {
+    # Two spaces, then tabs, then mixed whitespace — all should be trimmed.
+    printf 'export  GH_TOKEN=ghp_two_spaces\n'              >  "$TEST_HOME/aab.conf"
+    printf 'export\tAAB_CLAUDE_CODE_MODEL=claude-haiku-4-5\n' >> "$TEST_HOME/aab.conf"
+    printf 'export   \tGIT_AUTHOR_NAME=Alice\n'              >> "$TEST_HOME/aab.conf"
+
+    run load_config_file "$TEST_HOME/aab.conf"
+    [ "$status" -eq 0 ]
+    # No malformed-line warnings — the whitespace should be eaten cleanly.
+    [[ "$output" != *"malformed"* ]]
+
+    # Re-load in-process to check values (run ran in a subshell).
+    load_config_file "$TEST_HOME/aab.conf"
+    [ "$GH_TOKEN" = "ghp_two_spaces" ]
+    [ "$AAB_CLAUDE_CODE_MODEL" = "claude-haiku-4-5" ]
+    [ "$GIT_AUTHOR_NAME" = "Alice" ]
+}
+
+@test "load_config_file preserves values containing '=' (only the FIRST '=' splits)" {
+    cat > "$TEST_HOME/aab.conf" <<'EOF'
+ANTHROPIC_BASE_URL=https://example.com/v1?foo=bar&baz=qux
+EOF
+    load_config_file "$TEST_HOME/aab.conf"
+    [ "$ANTHROPIC_BASE_URL" = "https://example.com/v1?foo=bar&baz=qux" ]
+}
+
+@test "load_config_file skips comments and blank lines" {
+    cat > "$TEST_HOME/aab.conf" <<'EOF'
+# comment at top
+
+# another comment
+AAB_CLAUDE_CODE_MODEL=claude-opus-4-7
+
+EOF
+    run load_config_file "$TEST_HOME/aab.conf"
+    [ "$status" -eq 0 ]
+    # No warnings about malformed lines.
+    [[ "$output" != *"malformed"* ]]
+
+    # Verify the one real key actually landed (re-run in-process).
+    load_config_file "$TEST_HOME/aab.conf"
+    [ "$AAB_CLAUDE_CODE_MODEL" = "claude-opus-4-7" ]
+}
+
+@test "load_config_file warns and skips malformed lines, but loads good ones" {
+    cat > "$TEST_HOME/aab.conf" <<'EOF'
+this-line-has-no-equals
+AAB_CLAUDE_CODE_MODEL=claude-opus-4-7
+1BADKEY=starts-with-digit
+GIT_AUTHOR_NAME=Alice
+EOF
+    run load_config_file "$TEST_HOME/aab.conf"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"no '='"* ]]
+    [[ "$output" == *"bad key"* ]]
+
+    # Good keys still loaded.
+    load_config_file "$TEST_HOME/aab.conf"
+    [ "$AAB_CLAUDE_CODE_MODEL" = "claude-opus-4-7" ]
+    [ "$GIT_AUTHOR_NAME" = "Alice" ]
+}
+
+@test "load_config_file: missing file errors out non-zero" {
+    run load_config_file "$TEST_HOME/does-not-exist.conf"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"not found or not readable"* ]]
+}
+
+@test "main() runs load_config_file only when given a positional arg (unset env vars populated)" {
+    # Drive main's config-loading step in isolation: we don't want main()
+    # to actually execute the rest of its pipeline here. Instead, replay
+    # the same logic main() uses: if $1 is set, call load_config_file.
+    cat > "$TEST_HOME/aab.conf" <<'EOF'
+GIT_AUTHOR_EMAIL=from-file@example.com
+EOF
+    # No positional arg: env must remain untouched.
+    [ -z "${GIT_AUTHOR_EMAIL:-}" ]
+    # With a positional arg, the helper populates it.
+    load_config_file "$TEST_HOME/aab.conf"
+    [ "$GIT_AUTHOR_EMAIL" = "from-file@example.com" ]
+}

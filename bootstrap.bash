@@ -112,6 +112,13 @@
 # overwrite, and the ~/.bashrc managed block is replaced wholesale each
 # run, so re-running without ANTHROPIC_API_KEY set will drop a previously-
 # written export (this is intentional — re-runs match the current env).
+#
+# Optional positional arg: a path to a config file containing the same
+# KEY=VALUE settings the env-var contract above accepts. When passed,
+# the script sources it before running (`bash bootstrap.bash ./aab.conf`
+# or `curl ... | bash -s -- ./aab.conf`). Env vars already set in the
+# shell WIN over file entries — so `FOO=override bash bootstrap.bash
+# aab.conf` is a one-line debug override without touching the file.
 
 set -euo pipefail
 
@@ -702,7 +709,85 @@ update_bashrc() {
     log "wrote autonomous-agent-bootstrap block to ${BASHRC} (provider=${provider}, model=${model})"
 }
 
+# ---------------------------------------------------------------------------
+# Optional config file (positional arg).
+#
+# When main() is passed a path as its first argument, load_config_file
+# parses KEY=VALUE pairs and exports them, with one important precedence
+# rule: env vars already set in the shell WIN over file entries. That
+# makes the pattern `FOO=override bash bootstrap.bash /path/to/conf`
+# intuitive for one-off debugging without editing the file.
+#
+# Supported line shapes: `KEY=value`, `KEY="quoted value"`, `KEY='single
+# quoted'`, optional leading `export `, lines starting with `#`, blank
+# lines. Anything else triggers a warn and is skipped.
+# ---------------------------------------------------------------------------
+load_config_file() {
+    local f="$1"
+    if [ ! -r "$f" ]; then
+        warn "config file '$f' not found or not readable"
+        exit 1
+    fi
+    log "loading config from $f (env vars already set in the shell take precedence)"
+
+    local line key val
+    while IFS= read -r line || [ -n "$line" ]; do
+        # Comments and blank lines.
+        case "$line" in
+            ''|'#'*) continue ;;
+        esac
+        # Trim leading/trailing whitespace.
+        line="${line#"${line%%[![:space:]]*}"}"
+        line="${line%"${line##*[![:space:]]}"}"
+        [ -z "$line" ] && continue
+        case "$line" in '#'*) continue ;; esac
+        # Allow a leading `export ` — with any amount / mix of whitespace
+        # (space, tab, multiple) between the keyword and the key. The regex
+        # guards against false matches like `exportable_thing=x` (where
+        # `export` is a prefix of the key, not a keyword).
+        if [[ "$line" =~ ^export[[:space:]] ]]; then
+            line="${line#export}"
+            line="${line#"${line%%[![:space:]]*}"}"
+        fi
+
+        # Require a `=`.
+        case "$line" in *=*) ;;
+            *)
+                warn "config file: ignoring malformed line (no '='): $line"
+                continue
+                ;;
+        esac
+
+        key="${line%%=*}"
+        val="${line#*=}"
+
+        # Key must be a valid shell identifier.
+        if ! [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+            warn "config file: ignoring malformed line (bad key): $line"
+            continue
+        fi
+
+        # Strip surrounding single- or double-quotes if balanced.
+        if [ "${#val}" -ge 2 ]; then
+            case "$val" in
+                \"*\") val="${val#\"}"; val="${val%\"}" ;;
+                \'*\') val="${val#\'}"; val="${val%\'}" ;;
+            esac
+        fi
+
+        # Env-beats-file: if the variable is already set in the shell
+        # (even to an empty string), leave it alone.
+        if [ -n "${!key+x}" ]; then
+            continue
+        fi
+        export "$key=$val"
+    done < "$f"
+}
+
 main() {
+    if [ -n "${1:-}" ]; then
+        load_config_file "$1"
+    fi
     install_base_deps
     install_claude
     install_brev
