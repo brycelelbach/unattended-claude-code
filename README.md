@@ -39,7 +39,7 @@ A single idempotent bash script that turns a fresh Linux host into a ready-to-us
 
 ## Quick start
 
-From a Brev VM or any Linux host, set your env vars and paste one of the following install recipes. All three write the same `~/.bashrc` block — they differ only in which credentials are populated and which provider is selected as the default.
+From a Brev VM or any Linux host, set your config and paste one of the following install recipes. You can either pass settings via **env vars** (recipes 1–3) or via a **config file** ([recipe 4](#4-config-file)) — both accept the same keys.
 
 ### 1. First-party + third-party (both credentials, pick a default)
 
@@ -93,6 +93,47 @@ claude -p "Say hello from Claude Code"
 If you didn't pass `GH_TOKEN`, sign in to gh (`gh auth login`) before using GitHub.
 
 To wire in GitHub SSH keys, export `GH_AUTH_SSH_PRIVATE_KEY_B64` (auth identity for `git`-over-SSH) and/or `GIT_SIGNING_PRIVATE_KEY_B64` (commit & tag signing) before running the bootstrap. See [SSH keys](#ssh-keys) for details.
+
+### 4. Config file
+
+Instead of long `export` chains, drop the same `KEY=VALUE` pairs in a file and pass its path as a positional arg:
+
+```bash
+cat > /tmp/aab.conf <<'CONF'
+AAB_CLAUDE_CODE_INFERENCE_PROVIDER=anthropic
+AAB_CLAUDE_CODE_MODEL=claude-opus-4-7
+ANTHROPIC_API_KEY=...
+GH_TOKEN=...
+GIT_AUTHOR_NAME=Your Name
+GIT_AUTHOR_EMAIL=you@example.com
+CONF
+
+# From a local checkout:
+bash bootstrap.bash /tmp/aab.conf
+
+# Or from curl-pipe-bash — note the '-s --' that hands the positional
+# arg through to the piped script:
+curl -fsSL https://raw.githubusercontent.com/brycelelbach/autonomous-agent-bootstrap/main/bootstrap.bash | bash -s -- /tmp/aab.conf
+```
+
+Supported line shapes:
+
+- `KEY=value`, `KEY="value with spaces"`, `KEY='single quoted'`
+- optional leading `export ` (for files that double as a sourceable shell snippet); any amount of whitespace between `export` and the key is tolerated
+- `#` at the start of a line is a comment; blank lines are ignored
+- malformed lines (no `=`, or a key that isn't a valid shell identifier) emit a warning and are skipped
+
+**Values are literal — no shell expansion.** `FOO=$BAR` sets `FOO` to the literal string `$BAR`, not the value of `$BAR` in your shell. This is deliberate: the parser is a KEY=VALUE reader, not a `source`, so a fat-fingered or malicious config file can't run arbitrary shell. If you want a templated config, expand in your shell first (`MY_GATEWAY_BASE=https://… envsubst < template > final.conf`) and pass the expanded file to the bootstrap.
+
+**Env beats file.** If a variable is already set in the shell when you invoke the bootstrap, that value wins over the file entry. This makes one-off overrides easy to test without editing the file:
+
+```bash
+AAB_CLAUDE_CODE_MODEL=claude-haiku-4-5 bash bootstrap.bash /tmp/aab.conf
+```
+
+A corollary: there's no way to *unset* a variable from the file — if `FOO` is already exported in your shell, the file cannot force it to "unset" (only the env→file direction is valid). `FOO= bash bootstrap.bash aab.conf` lets you explicitly set `FOO` to empty, which most of the bootstrap's optional keys treat as "unset".
+
+A missing / unreadable config-file path causes the bootstrap to exit non-zero before touching anything.
 
 ## Switching inference providers
 
