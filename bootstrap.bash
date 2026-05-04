@@ -265,12 +265,24 @@ write_settings() {
         log "Backed up existing settings.json -> ${backup}."
     fi
     local model="${AAB_CLAUDE_CODE_MODEL:-$DEFAULT_CLAUDE_CODE_MODEL}"
+    # Belt-and-suspenders: bypassPermissions skips prompts for writes
+    # under .claude/ already, but the explicit allow list also keeps
+    # config / memory / agent / skill edits unprompted in 'default' or
+    # 'acceptEdits' mode if a user toggles out of bypass mid-session.
     cat > "${SETTINGS_FILE}" <<JSON
 {
   "model": "${model}",
   "effortLevel": "max",
   "permissions": {
-    "defaultMode": "bypassPermissions"
+    "defaultMode": "bypassPermissions",
+    "allow": [
+      "Edit(${HOME}/.claude/**)",
+      "Write(${HOME}/.claude/**)",
+      "Read(${HOME}/.claude/**)",
+      "Edit(${HOME}/.claude.json)",
+      "Write(${HOME}/.claude.json)",
+      "Read(${HOME}/.claude.json)"
+    ]
   },
   "skipDangerousModePermissionPrompt": true,
   "env": {
