@@ -9,7 +9,9 @@ setup() {
     export HOME="$TEST_HOME"
     export REPO_ROOT="$(cd "$BATS_TEST_DIRNAME/.." && pwd)"
     # Unset env vars the script looks at so each test controls its own.
-    unset AAB_CLAUDE_CODE_MODEL AAB_CLAUDE_CODE_INFERENCE_PROVIDER \
+    unset AAB_CLAUDE_CODE_MODEL AAB_CLAUDE_CODE_HAIKU_MODEL \
+          AAB_CLAUDE_CODE_SONNET_MODEL AAB_CLAUDE_CODE_OPUS_MODEL \
+          AAB_CLAUDE_CODE_INFERENCE_PROVIDER \
           AAB_CLAUDE_CODE_MODEL_THIRD_PARTY_PREFIX \
           ANTHROPIC_API_KEY ANTHROPIC_BASE_URL ANTHROPIC_AUTH_TOKEN \
           GH_TOKEN GIT_AUTHOR_NAME GIT_AUTHOR_EMAIL \
@@ -154,6 +156,60 @@ PY
 @test "update_bashrc honors third-party provider selection" {
     AAB_CLAUDE_CODE_INFERENCE_PROVIDER="third-party" update_bashrc
     grep -q 'AAB_CLAUDE_CODE_INFERENCE_PROVIDER="third-party"' "$BASHRC"
+}
+
+@test "update_bashrc exports default ANTHROPIC_DEFAULT_*_MODEL in both branches" {
+    update_bashrc
+    # %q-quoting (single-quote, double-quote, or bare) varies by character class
+    # in the value; accept any of the three.
+    grep -qE "export ANTHROPIC_DEFAULT_HAIKU_MODEL=('?\"?)claude-haiku-4-5\\1?$"   "$BASHRC"
+    grep -qE "export ANTHROPIC_DEFAULT_SONNET_MODEL=('?\"?)claude-sonnet-4-6\\1?$" "$BASHRC"
+    grep -qE "export ANTHROPIC_DEFAULT_OPUS_MODEL=('?\"?)claude-opus-4-7\\1?$"     "$BASHRC"
+    # Both branches export each var — two of each.
+    for tier in HAIKU SONNET OPUS; do
+        local export_count
+        export_count=$(grep -c "export ANTHROPIC_DEFAULT_${tier}_MODEL=" "$BASHRC")
+        [ "$export_count" -eq 2 ]
+    done
+}
+
+@test "update_bashrc honors per-tier AAB_CLAUDE_CODE_*_MODEL overrides" {
+    AAB_CLAUDE_CODE_HAIKU_MODEL="claude-haiku-9-9" \
+        AAB_CLAUDE_CODE_SONNET_MODEL="claude-sonnet-9-9" \
+        AAB_CLAUDE_CODE_OPUS_MODEL="claude-opus-9-9" \
+        update_bashrc
+    grep -q "ANTHROPIC_DEFAULT_HAIKU_MODEL=claude-haiku-9-9"   "$BASHRC"
+    grep -q "ANTHROPIC_DEFAULT_SONNET_MODEL=claude-sonnet-9-9" "$BASHRC"
+    grep -q "ANTHROPIC_DEFAULT_OPUS_MODEL=claude-opus-9-9"     "$BASHRC"
+    # The defaults are gone.
+    ! grep -q "claude-haiku-4-5"  "$BASHRC"
+    ! grep -q "claude-sonnet-4-6" "$BASHRC"
+}
+
+@test "update_bashrc applies third-party prefix to every per-tier model" {
+    AAB_CLAUDE_CODE_MODEL_THIRD_PARTY_PREFIX="aws/anthropic/bedrock-" update_bashrc
+    # Anthropic branch keeps bare names; third-party branch gets the prefix.
+    grep -q "ANTHROPIC_DEFAULT_HAIKU_MODEL=claude-haiku-4-5"                       "$BASHRC"
+    grep -q "ANTHROPIC_DEFAULT_HAIKU_MODEL=aws/anthropic/bedrock-claude-haiku-4-5" "$BASHRC"
+    grep -q "ANTHROPIC_DEFAULT_SONNET_MODEL=claude-sonnet-4-6"                       "$BASHRC"
+    grep -q "ANTHROPIC_DEFAULT_SONNET_MODEL=aws/anthropic/bedrock-claude-sonnet-4-6" "$BASHRC"
+    grep -q "ANTHROPIC_DEFAULT_OPUS_MODEL=claude-opus-4-7"                       "$BASHRC"
+    grep -q "ANTHROPIC_DEFAULT_OPUS_MODEL=aws/anthropic/bedrock-claude-opus-4-7" "$BASHRC"
+}
+
+@test "update_bashrc third-party per-tier exports are reachable when provider flips" {
+    AAB_CLAUDE_CODE_INFERENCE_PROVIDER="third-party" \
+        AAB_CLAUDE_CODE_MODEL_THIRD_PARTY_PREFIX="aws/anthropic/bedrock-" \
+        update_bashrc
+    # Source the bashrc and confirm every tier resolves to the prefixed value.
+    # shellcheck disable=SC1090
+    ANTHROPIC_DEFAULT_HAIKU_MODEL="" \
+        ANTHROPIC_DEFAULT_SONNET_MODEL="" \
+        ANTHROPIC_DEFAULT_OPUS_MODEL="" \
+        . "$BASHRC"
+    [ "$ANTHROPIC_DEFAULT_HAIKU_MODEL"  = "aws/anthropic/bedrock-claude-haiku-4-5" ]
+    [ "$ANTHROPIC_DEFAULT_SONNET_MODEL" = "aws/anthropic/bedrock-claude-sonnet-4-6" ]
+    [ "$ANTHROPIC_DEFAULT_OPUS_MODEL"   = "aws/anthropic/bedrock-claude-opus-4-7" ]
 }
 
 @test "sourcing bootstrap.bash does NOT execute main" {

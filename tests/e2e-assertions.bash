@@ -62,6 +62,18 @@ grep -q 'AAB_CLAUDE_CODE_INFERENCE_PROVIDER=' "$BASHRC" \
     || fail "Provider variable not written."
 pass "AAB_CLAUDE_CODE_INFERENCE_PROVIDER set in bashrc."
 
+# 6b. Both branches export every ANTHROPIC_DEFAULT_*_MODEL so each model
+# tier (the haiku used for background tasks like web search, the sonnet
+# and opus available via /model swaps) resolves under whichever provider
+# is active.
+for tier in HAIKU SONNET OPUS; do
+    var="ANTHROPIC_DEFAULT_${tier}_MODEL"
+    count=$(grep -c "export ${var}=" "$BASHRC" || true)
+    [ "$count" -eq 2 ] \
+        || fail "Expected 2 ${var} exports, got $count."
+done
+pass "ANTHROPIC_DEFAULT_{HAIKU,SONNET,OPUS}_MODEL exported in both provider branches."
+
 # 7. The bashrc block sources cleanly.
 bash -n "$BASHRC" || fail "bashrc has syntax errors."
 pass "bashrc parses cleanly."
