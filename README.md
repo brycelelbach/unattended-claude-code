@@ -6,6 +6,7 @@ A single idempotent bash script that turns a fresh Linux host into a ready-to-us
 
 1. **[Claude Code](https://docs.anthropic.com/claude/docs/claude-code)** — installed via the official native installer, then configured for unattended use:
    - `bypassPermissions` default mode, `skipDangerousModePermissionPrompt`, sandboxed
+   - Edit / Write / Read for `~/.claude/**` and `~/.claude.json` pre-approved in `permissions.allow` so the agent can update its own config, agents, skills, and memory files without a prompt even when bypass mode is toggled off mid-session
    - Model selected via `AAB_CLAUDE_CODE_MODEL` (defaults to `claude-opus-4-7`), max effort
    - Inference provider selectable at runtime — either Anthropic's first-party API or any Anthropic-compatible third-party gateway. Switch with `claude_code_switch_inference_provider anthropic|third-party`.
    - Onboarding wizard skipped (no theme / color-scheme prompt on first launch)

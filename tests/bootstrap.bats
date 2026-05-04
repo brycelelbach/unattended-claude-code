@@ -83,6 +83,19 @@ assert d["effortLevel"] == "max"
 PY
 }
 
+@test "write_settings pre-approves edits to ~/.claude/** and ~/.claude.json" {
+    write_settings
+    python3 - <<PY
+import json
+d = json.load(open("$SETTINGS_FILE"))
+home = "$HOME"
+allow = d["permissions"]["allow"]
+for op in ("Edit", "Write", "Read"):
+    assert f"{op}({home}/.claude/**)" in allow, (op, allow)
+    assert f"{op}({home}/.claude.json)" in allow, (op, allow)
+PY
+}
+
 @test "write_settings backs up pre-existing settings.json" {
     mkdir -p "$CLAUDE_DIR"
     echo '{"model": "old"}' > "$SETTINGS_FILE"

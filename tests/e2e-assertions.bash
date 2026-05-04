@@ -16,14 +16,19 @@ BASHRC="${HOME}/.bashrc"
 
 # 1. settings.json is well-formed and has the expected shape.
 [ -f "$SETTINGS_FILE" ] || fail "settings.json not written."
-python3 - "$SETTINGS_FILE" <<'PY'
+python3 - "$SETTINGS_FILE" "$HOME" <<'PY'
 import json, sys
 d = json.load(open(sys.argv[1]))
+home = sys.argv[2]
 assert d["permissions"]["defaultMode"] == "bypassPermissions", d
 assert d["skipDangerousModePermissionPrompt"] is True, d
 assert d["env"]["CLAUDE_CODE_SANDBOXED"] == "1", d
 assert d["effortLevel"] == "max", d
 assert d["model"].startswith("claude-"), d
+allow = d["permissions"]["allow"]
+for op in ("Edit", "Write", "Read"):
+    assert f"{op}({home}/.claude/**)" in allow, (op, allow)
+    assert f"{op}({home}/.claude.json)" in allow, (op, allow)
 PY
 pass "settings.json written with unattended-mode defaults."
 
