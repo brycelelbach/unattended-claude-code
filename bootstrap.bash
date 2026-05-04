@@ -173,15 +173,15 @@ install_base_deps() {
     fi
 
     if ! command -v apt-get >/dev/null 2>&1; then
-        warn "missing base deps (${needed[*]}) and apt-get is not available; install them manually and re-run"
+        warn "Missing base deps (${needed[*]}) and apt-get is not available; install them manually and re-run."
         return
     fi
     if [ -n "$SUDO" ] && ! sudo -n true 2>/dev/null; then
-        warn "missing base deps (${needed[*]}) and passwordless sudo is not available; install them manually and re-run"
+        warn "Missing base deps (${needed[*]}) and passwordless sudo is not available; install them manually and re-run."
         return
     fi
 
-    log "installing base deps: ${needed[*]}"
+    log "Installing base deps: ${needed[*]}."
     $SUDO env DEBIAN_FRONTEND=noninteractive apt-get update -y
     $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "${needed[@]}"
 }
@@ -190,7 +190,7 @@ install_base_deps() {
 # 1. Install / upgrade Claude Code via the native installer.
 # ---------------------------------------------------------------------------
 install_claude() {
-    log "installing / updating Claude Code via native installer..."
+    log "Installing / updating Claude Code via native installer..."
     curl -fsSL https://claude.ai/install.sh | bash
 }
 
@@ -198,7 +198,7 @@ install_claude() {
 # 2. Install / upgrade the Brev CLI via the official install-latest.sh.
 # ---------------------------------------------------------------------------
 install_brev() {
-    log "installing / updating Brev CLI via official installer..."
+    log "Installing / updating Brev CLI via official installer..."
     curl -fsSL https://raw.githubusercontent.com/brevdev/brev-cli/main/bin/install-latest.sh | bash
 }
 
@@ -211,12 +211,12 @@ install_brev() {
 # ---------------------------------------------------------------------------
 ensure_gh() {
     if [ -n "$SUDO" ] && ! sudo -n true 2>/dev/null; then
-        warn "gh install needs sudo and passwordless sudo is not available; skipping"
-        warn "install gh manually from https://cli.github.com/ and re-run"
+        warn "gh install needs sudo and passwordless sudo is not available; skipping."
+        warn "Install gh manually from https://cli.github.com/ and re-run."
         return
     fi
     if command -v apt-get >/dev/null 2>&1; then
-        log "installing gh from cli.github.com apt repo"
+        log "Installing gh from cli.github.com apt repo."
         local keyring=/usr/share/keyrings/githubcli-archive-keyring.gpg
         curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
             | $SUDO dd of="$keyring" status=none
@@ -226,7 +226,7 @@ ensure_gh() {
         $SUDO apt-get update -y
         $SUDO apt-get install -y gh
     else
-        warn "apt-get not found — skipping gh install. Install manually from https://cli.github.com/"
+        warn "apt-get not found — skipping gh install. Install manually from https://cli.github.com/."
     fi
 }
 
@@ -239,7 +239,7 @@ write_settings() {
         local backup
         backup="${SETTINGS_FILE}.bak.$(date +%Y%m%d-%H%M%S)"
         cp "${SETTINGS_FILE}" "${backup}"
-        log "backed up existing settings.json -> ${backup}"
+        log "Backed up existing settings.json -> ${backup}."
     fi
     local model="${AAB_CLAUDE_CODE_MODEL:-$DEFAULT_CLAUDE_CODE_MODEL}"
     cat > "${SETTINGS_FILE}" <<JSON
@@ -256,7 +256,7 @@ write_settings() {
   }
 }
 JSON
-    log "wrote ${SETTINGS_FILE} (model=${model})"
+    log "Wrote ${SETTINGS_FILE} (model=${model})."
 }
 
 # ---------------------------------------------------------------------------
@@ -272,7 +272,7 @@ JSON
 # preserve auth tokens, userID, and any prior approvals.
 # ---------------------------------------------------------------------------
 skip_onboarding() {
-    command -v python3 >/dev/null 2>&1 || { log "ERROR: python3 required to edit ~/.claude.json"; exit 1; }
+    command -v python3 >/dev/null 2>&1 || { log "ERROR: python3 required to edit ~/.claude.json."; exit 1; }
     python3 - "${CLAUDE_JSON}" "${ANTHROPIC_API_KEY:-}" <<'PY'
 import json, os, shutil, sys, time
 path = sys.argv[1]
@@ -281,7 +281,7 @@ data = {}
 if os.path.exists(path):
     backup = f"{path}.bak.{time.strftime('%Y%m%d-%H%M%S')}"
     shutil.copy2(path, backup)
-    print(f"[bootstrap] backed up existing .claude.json -> {backup}")
+    print(f"[bootstrap] Backed up existing .claude.json -> {backup}.")
     try:
         with open(path) as f:
             data = json.load(f)
@@ -295,11 +295,11 @@ if api_key:
     if fp not in approved:
         approved.append(fp)
     resp.setdefault("rejected", [])
-    print(f"[bootstrap] pre-approved ANTHROPIC_API_KEY fingerprint ...{fp}")
+    print(f"[bootstrap] Pre-approved ANTHROPIC_API_KEY fingerprint ...{fp}.")
 fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
 with os.fdopen(fd, "w") as f:
     json.dump(data, f, indent=2)
-print(f"[bootstrap] set hasCompletedOnboarding=true in {path}")
+print(f"[bootstrap] Set hasCompletedOnboarding=true in {path}.")
 PY
 }
 
@@ -312,12 +312,12 @@ skip_brev_onboarding() {
         local backup
         backup="${BREV_ONBOARDING}.bak.$(date +%Y%m%d-%H%M%S)"
         cp "${BREV_ONBOARDING}" "${backup}"
-        log "backed up existing onboarding.json -> ${backup}"
+        log "Backed up existing onboarding.json -> ${backup}."
     fi
     cat > "${BREV_ONBOARDING}" <<'JSON'
 {"step": 1, "hasRunBrevShell": true, "hasRunBrevOpen": true}
 JSON
-    log "wrote ${BREV_ONBOARDING}"
+    log "Wrote ${BREV_ONBOARDING}."
 }
 
 # ---------------------------------------------------------------------------
@@ -325,7 +325,7 @@ JSON
 # ---------------------------------------------------------------------------
 configure_git() {
     if ! command -v git >/dev/null 2>&1; then
-        warn "git not installed — skipping git configuration"
+        warn "git not installed — skipping git configuration."
         return
     fi
     if [ -n "${GIT_AUTHOR_NAME:-}" ]; then
@@ -338,7 +338,7 @@ configure_git() {
     fi
     if command -v gh >/dev/null 2>&1; then
         git config --global 'credential.https://github.com.helper' '!gh auth git-credential'
-        log "registered gh as github.com credential helper"
+        log "Registered gh as github.com credential helper."
     fi
 }
 
@@ -350,19 +350,19 @@ configure_git() {
 # neither. The signing key path does NOT touch ~/.ssh/config.
 # ---------------------------------------------------------------------------
 
-# _ensure_ssh_keygen: idempotently install openssh-client if ssh-keygen is
+# _ensure_ssh_keygen: Idempotently install openssh-client if ssh-keygen is
 # missing. Returns 0 iff ssh-keygen is callable afterward.
 _ensure_ssh_keygen() {
     command -v ssh-keygen >/dev/null 2>&1 && return 0
     if ! command -v apt-get >/dev/null 2>&1; then
-        warn "ssh-keygen not installed and apt-get unavailable"
+        warn "ssh-keygen not installed and apt-get unavailable."
         return 1
     fi
     if [ -n "$SUDO" ] && ! sudo -n true 2>/dev/null; then
-        warn "ssh-keygen not installed and passwordless sudo unavailable"
+        warn "ssh-keygen not installed and passwordless sudo unavailable."
         return 1
     fi
-    log "installing openssh-client for ssh-keygen"
+    log "Installing openssh-client for ssh-keygen."
     $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends openssh-client
     command -v ssh-keygen >/dev/null 2>&1
 }
@@ -380,14 +380,14 @@ _decode_ssh_key() {
     chmod 0700 "$SSH_DIR"
 
     if ! printf '%s' "$encoded" | base64 -d > "$dest" 2>/dev/null; then
-        warn "${label} is not valid base64; skipping"
+        warn "${label} is not valid base64; skipping."
         rm -f "$dest"
         return 1
     fi
     chmod 0600 "$dest"
 
     if ! ssh-keygen -y -f "$dest" > "$dest_pub" 2>/dev/null; then
-        warn "${label} did not decode to a valid SSH private key; skipping"
+        warn "${label} did not decode to a valid SSH private key; skipping."
         rm -f "$dest" "$dest_pub"
         return 1
     fi
@@ -395,7 +395,7 @@ _decode_ssh_key() {
     return 0
 }
 
-# _rewrite_ssh_config_block: idempotently rewrite the managed block in
+# _rewrite_ssh_config_block: Idempotently rewrite the managed block in
 # ~/.ssh/config so github.com uses the supplied IdentityFile. Strips any
 # previous managed block plus its trailing padding so the file size stays
 # stable across re-runs and pre-existing entries outside the block are
@@ -439,7 +439,7 @@ PY
     chmod 0600 "$SSH_CONFIG"
 }
 
-# install_auth_ssh_key: decode $GH_AUTH_SSH_PRIVATE_KEY_B64 to
+# install_auth_ssh_key: Decode $GH_AUTH_SSH_PRIVATE_KEY_B64 to
 # ~/.ssh/id_aab_auth and wire it as the IdentityFile for github.com in
 # ~/.ssh/config. Does NOT touch git signing config. Silent no-op when the
 # env var is unset.
@@ -448,17 +448,17 @@ install_auth_ssh_key() {
     [ -z "$encoded" ] && return
 
     if ! command -v base64 >/dev/null 2>&1; then
-        warn "base64 not installed; cannot decode GH_AUTH_SSH_PRIVATE_KEY_B64; skipping"
+        warn "base64 not installed; cannot decode GH_AUTH_SSH_PRIVATE_KEY_B64; skipping."
         return
     fi
-    _ensure_ssh_keygen || { warn "skipping GH_AUTH_SSH_PRIVATE_KEY_B64 install (ssh-keygen unavailable)"; return; }
+    _ensure_ssh_keygen || { warn "Skipping GH_AUTH_SSH_PRIVATE_KEY_B64 install (ssh-keygen unavailable)."; return; }
     _decode_ssh_key "$encoded" "$AUTH_KEY" "GH_AUTH_SSH_PRIVATE_KEY_B64" || return 0
 
     _rewrite_ssh_config_block "$AUTH_KEY"
-    log "installed GitHub auth SSH key at $AUTH_KEY (pub $AUTH_KEY_PUB); wired github.com identity in $SSH_CONFIG"
+    log "Installed GitHub auth SSH key at $AUTH_KEY (pub $AUTH_KEY_PUB); wired github.com identity in $SSH_CONFIG."
 }
 
-# install_signing_ssh_key: decode $GIT_SIGNING_PRIVATE_KEY_B64 to
+# install_signing_ssh_key: Decode $GIT_SIGNING_PRIVATE_KEY_B64 to
 # ~/.ssh/id_aab_signing and configure git to sign commits/tags with it.
 # Does NOT touch ~/.ssh/config — this key is for signing only. Silent
 # no-op when the env var is unset.
@@ -467,10 +467,10 @@ install_signing_ssh_key() {
     [ -z "$encoded" ] && return
 
     if ! command -v base64 >/dev/null 2>&1; then
-        warn "base64 not installed; cannot decode GIT_SIGNING_PRIVATE_KEY_B64; skipping"
+        warn "base64 not installed; cannot decode GIT_SIGNING_PRIVATE_KEY_B64; skipping."
         return
     fi
-    _ensure_ssh_keygen || { warn "skipping GIT_SIGNING_PRIVATE_KEY_B64 install (ssh-keygen unavailable)"; return; }
+    _ensure_ssh_keygen || { warn "Skipping GIT_SIGNING_PRIVATE_KEY_B64 install (ssh-keygen unavailable)."; return; }
     _decode_ssh_key "$encoded" "$SIGNING_KEY" "GIT_SIGNING_PRIVATE_KEY_B64" || return 0
 
     if command -v git >/dev/null 2>&1; then
@@ -478,9 +478,9 @@ install_signing_ssh_key() {
         git config --global user.signingkey "$SIGNING_KEY_PUB"
         git config --global commit.gpgsign true
         git config --global tag.gpgsign true
-        log "configured git to sign commits and tags with $SIGNING_KEY_PUB"
+        log "Configured git to sign commits and tags with $SIGNING_KEY_PUB."
     else
-        warn "git not installed; skipping SSH signing config"
+        warn "git not installed; skipping SSH signing config."
     fi
 }
 
@@ -501,17 +501,17 @@ install_signing_ssh_key() {
 # ---------------------------------------------------------------------------
 PLUGINS_DEFAULT_URL="https://raw.githubusercontent.com/brycelelbach/autonomous-agent-bootstrap/main/claude_code_plugins.txt"
 install_claude_code_plugins() {
-    command -v python3 >/dev/null 2>&1 || { warn "python3 required for plugin install; skipping"; return; }
+    command -v python3 >/dev/null 2>&1 || { warn "python3 required for plugin install; skipping."; return; }
     local plugins_file="${AAB_CLAUDE_CODE_PLUGINS_FILE:-}"
     local plugins_url="${AAB_CLAUDE_CODE_PLUGINS_URL:-$PLUGINS_DEFAULT_URL}"
     local content=""
     if [ -n "$plugins_file" ] && [ -f "$plugins_file" ]; then
         content=$(cat "$plugins_file")
-        log "reading plugin list from ${plugins_file}"
+        log "Reading plugin list from ${plugins_file}."
     elif content=$(curl -fsSL "$plugins_url" 2>/dev/null); then
-        log "fetched plugin list from ${plugins_url}"
+        log "Fetched plugin list from ${plugins_url}."
     else
-        warn "could not read plugin list (file=${plugins_file:-unset}, url=${plugins_url}); skipping plugin install"
+        warn "Could not read plugin list (file=${plugins_file:-unset}, url=${plugins_url}); skipping plugin install."
         return
     fi
 
@@ -527,7 +527,7 @@ install_claude_code_plugins() {
     done <<< "$content"
 
     if [ ${#repos[@]} -eq 0 ]; then
-        log "plugin list is empty; skipping plugin install"
+        log "Plugin list is empty; skipping plugin install."
         return
     fi
 
@@ -561,17 +561,17 @@ install_claude_code_plugins() {
             # Most commonly this means the repo is private and the caller
             # lacks access (or gh isn't authenticated). Plugin install is an
             # optional step — log and move on without failing the bootstrap.
-            log "could not fetch .claude-plugin/marketplace.json from ${repo} (private repo without access?); skipping"
+            log "Could not fetch .claude-plugin/marketplace.json from ${repo} (private repo without access?); skipping."
             continue
         fi
         marketplace_name=$(printf '%s' "$marketplace_json" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("name",""))') || marketplace_name=""
         if [ -z "$marketplace_name" ]; then
-            warn "${repo}/.claude-plugin/marketplace.json has no 'name'; skipping"
+            warn "${repo}/.claude-plugin/marketplace.json has no 'name'; skipping."
             continue
         fi
         plugin_names=$(printf '%s' "$marketplace_json" | python3 -c 'import json,sys; [print(p["name"]) for p in json.load(sys.stdin).get("plugins",[]) if p.get("name")]')
         if [ -z "$plugin_names" ]; then
-            warn "${repo} marketplace lists no plugins; skipping"
+            warn "${repo} marketplace lists no plugins; skipping."
             continue
         fi
         while IFS= read -r plugin_name; do
@@ -581,7 +581,7 @@ install_claude_code_plugins() {
     done
 
     if [ ${#tuples[@]} -eq 0 ]; then
-        warn "no plugins resolved; skipping settings.json update"
+        warn "No plugins resolved; skipping settings.json update."
         return
     fi
 
@@ -599,7 +599,7 @@ for t in tuples:
     repo, marketplace, plugin = t.split("|", 2)
     extra[marketplace] = {"source": {"source": "github", "repo": repo}}
     enabled[f"{plugin}@{marketplace}"] = True
-    print(f"[bootstrap] enabled plugin {plugin}@{marketplace} from github {repo}")
+    print(f"[bootstrap] Enabled plugin {plugin}@{marketplace} from github {repo}.")
 with open(path, "w") as f:
     json.dump(data, f, indent=2)
 PY
@@ -624,12 +624,12 @@ update_bashrc() {
             !skip { print }
         ' "${BASHRC}" > "$tmp"
         mv "$tmp" "${BASHRC}"
-        log "replaced existing autonomous-agent-bootstrap block in ${BASHRC}"
+        log "Replaced existing autonomous-agent-bootstrap block in ${BASHRC}."
     fi
 
     local provider="${AAB_CLAUDE_CODE_INFERENCE_PROVIDER:-anthropic}"
     if [ "$provider" != "anthropic" ] && [ "$provider" != "third-party" ]; then
-        warn "AAB_CLAUDE_CODE_INFERENCE_PROVIDER='${provider}' is not 'anthropic' or 'third-party'; defaulting to 'anthropic'"
+        warn "AAB_CLAUDE_CODE_INFERENCE_PROVIDER='${provider}' is not 'anthropic' or 'third-party'; defaulting to 'anthropic'."
         provider="anthropic"
     fi
     local model="${AAB_CLAUDE_CODE_MODEL:-$DEFAULT_CLAUDE_CODE_MODEL}"
@@ -706,7 +706,7 @@ update_bashrc() {
             '}'
         printf '%s\n' "${BASHRC_MARKER_END}"
     } >> "${BASHRC}"
-    log "wrote autonomous-agent-bootstrap block to ${BASHRC} (provider=${provider}, model=${model})"
+    log "Wrote autonomous-agent-bootstrap block to ${BASHRC} (provider=${provider}, model=${model})."
 }
 
 # ---------------------------------------------------------------------------
@@ -725,10 +725,10 @@ update_bashrc() {
 load_config_file() {
     local f="$1"
     if [ ! -r "$f" ]; then
-        warn "config file '$f' not found or not readable"
+        warn "Config file '$f' not found or not readable."
         exit 1
     fi
-    log "loading config from $f (env vars already set in the shell take precedence)"
+    log "Loading config from $f (env vars already set in the shell take precedence)."
 
     local line key val
     while IFS= read -r line || [ -n "$line" ]; do
@@ -753,7 +753,7 @@ load_config_file() {
         # Require a `=`.
         case "$line" in *=*) ;;
             *)
-                warn "config file: ignoring malformed line (no '='): $line"
+                warn "config file: Ignoring malformed line (no '='): $line."
                 continue
                 ;;
         esac
@@ -763,7 +763,7 @@ load_config_file() {
 
         # Key must be a valid shell identifier.
         if ! [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
-            warn "config file: ignoring malformed line (bad key): $line"
+            warn "config file: Ignoring malformed line (bad key): $line."
             continue
         fi
 
@@ -800,7 +800,7 @@ main() {
     install_signing_ssh_key
     install_claude_code_plugins
     update_bashrc
-    log "done. Open a new shell (or 'source ~/.bashrc') so the PATH / alias take effect."
+    log "Done. Open a new shell (or 'source ~/.bashrc') so the PATH / alias take effect."
 }
 
 if [ "${BASH_SOURCE[0]}" = "$0" ]; then

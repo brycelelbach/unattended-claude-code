@@ -26,7 +26,7 @@ cd "$HERE"
 
 need() {
     command -v "$1" >/dev/null 2>&1 \
-        || { echo "test.bash: missing dependency: $1" >&2; return 1; }
+        || { echo "test.bash: Missing dependency: $1." >&2; return 1; }
 }
 
 run_lint() {
@@ -137,7 +137,7 @@ for arg in "$@"; do
             ;;
         -h|--help) usage; exit 0 ;;
         *)
-            echo "test.bash: unknown arg: $arg" >&2
+            echo "test.bash: Unknown arg: $arg." >&2
             usage >&2
             exit 2
             ;;

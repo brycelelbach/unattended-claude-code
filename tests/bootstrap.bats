@@ -176,8 +176,8 @@ PY
 
     run install_base_deps
     [ "$status" -eq 0 ]
-    # Silent: no "installing base deps:" log line, and no apt-get invocation.
-    [[ "$output" != *"installing base deps:"* ]]
+    # Silent: no "Installing base deps:" log line, and no apt-get invocation.
+    [[ "$output" != *"Installing base deps:"* ]]
 }
 
 @test "install_base_deps warns and skips when apt-get is unavailable" {
@@ -190,7 +190,7 @@ PY
     [ "$status" -eq 0 ]
     [[ "$output" == *"apt-get is not available"* ]]
     # Should NOT claim to be installing anything.
-    [[ "$output" != *"installing base deps:"* ]]
+    [[ "$output" != *"Installing base deps:"* ]]
 }
 
 
@@ -308,7 +308,7 @@ PY
     run install_claude_code_plugins
     [ "$status" -eq 0 ]
     # Soft log, not WARN, for the inaccessible repo.
-    [[ "$output" == *"could not fetch .claude-plugin/marketplace.json from private/no-access"* ]]
+    [[ "$output" == *"Could not fetch .claude-plugin/marketplace.json from private/no-access"* ]]
     [[ "$output" != *"WARN: "*"private/no-access"* ]]
 
     python3 - <<PY
