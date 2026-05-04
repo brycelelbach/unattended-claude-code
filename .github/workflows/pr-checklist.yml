@@ -21,6 +21,11 @@ jobs:
   unchecked-boxes:
     name: No unchecked '[ ]' boxes in PR body
     runs-on: ubuntu-latest
+    # Only enforce on agent-authored PRs. AGENTS.md is the agent
+    # contributor guide; the `[x]`-everywhere rule is part of that
+    # guide and applies to agents, not humans. Add agent GitHub
+    # account(s) to this list as the project gains more.
+    if: contains(fromJSON('["robobryce"]'), github.event.pull_request.user.login)
     steps:
       - name: Scan PR body for '[ ]' list-item checkboxes
         env:
