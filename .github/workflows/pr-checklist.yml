@@ -1,0 +1,39 @@
+name: PR checklist
+
+# Fails the check if the PR body contains an unchecked `[ ]` markdown
+# checkbox. Per AGENTS.md § *Perform live tests*: every test-plan
+# checkbox must be `[x]` before merge — `[x]` means "I considered
+# this and the answer is here" (verbatim output for tests you ran,
+# or a one-line justification for legitimate scope-of-change skips).
+#
+# Runs on `edited` so a body update re-checks immediately, on
+# `synchronize` so checkbox state is re-validated when the PR head
+# moves, and on `ready_for_review` so a draft → ready transition
+# doesn't sneak past the gate.
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+
+jobs:
+  unchecked-boxes:
+    name: No unchecked '[ ]' boxes in PR body
+    runs-on: ubuntu-latest
+    steps:
+      - name: Scan PR body for '[ ]' list-item checkboxes
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        # The regex matches a top-level or nested list item
+        # (`- [ ]`, `  - [ ]`, `* [ ]`, `+ [ ]`) at the start of a
+        # line. It deliberately does NOT match blockquoted lines
+        # (`> - [ ]`) so a PR body can quote the bad pattern as an
+        # example without tripping the check on itself.
+        run: |
+          if printf '%s\n' "$PR_BODY" | grep -nE '^[[:space:]]*[-*+][[:space:]]+\[ \]'; then
+            echo
+            echo "::error::PR body has unchecked '[ ]' checkbox(es). Per AGENTS.md, every test-plan checkbox must be '[x]' before merge — '[x]' means \"I considered this and the answer is here\" (verbatim output for tests you ran, or a one-line justification for legitimate scope-of-change skips). Update the PR body; this check re-runs on edit."
+            exit 1
+          fi
+          echo "PR body clean: no unchecked '[ ]' checkboxes."
