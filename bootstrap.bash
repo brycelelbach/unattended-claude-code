@@ -53,11 +53,31 @@
 #                       Defaults to claude-opus-4-7.
 #   AAB_CLAUDE_CODE_MODEL_THIRD_PARTY_PREFIX
 #                       Namespace prefix a third-party gateway uses in front
-#                       of Anthropic model names. Prepended to
-#                       AAB_CLAUDE_CODE_MODEL in the third-party branch's
-#                       ANTHROPIC_MODEL export (e.g. 'aws/anthropic/bedrock-'
-#                       + 'claude-opus-4-7' = 'aws/anthropic/bedrock-claude-
+#                       of Anthropic model names. Prepended to every
+#                       per-tier model name when building the third-party
+#                       branch's ANTHROPIC_MODEL / ANTHROPIC_DEFAULT_*_MODEL
+#                       exports (e.g. 'aws/anthropic/bedrock-' +
+#                       'claude-opus-4-7' = 'aws/anthropic/bedrock-claude-
 #                       opus-4-7').
+#   AAB_CLAUDE_CODE_HAIKU_MODEL
+#                       Unprefixed haiku-tier model name. Claude Code uses
+#                       this tier for background tasks (web search,
+#                       summarization, file naming). Exported as
+#                       ANTHROPIC_DEFAULT_HAIKU_MODEL — raw in the anthropic
+#                       branch, prefixed with
+#                       AAB_CLAUDE_CODE_MODEL_THIRD_PARTY_PREFIX in the
+#                       third-party branch. Defaults to claude-haiku-4-5.
+#   AAB_CLAUDE_CODE_SONNET_MODEL
+#                       Unprefixed sonnet-tier model name, used by Claude
+#                       Code when /model selects the sonnet tier mid-session.
+#                       Exported as ANTHROPIC_DEFAULT_SONNET_MODEL with the
+#                       same prefix-or-not treatment. Defaults to
+#                       claude-sonnet-4-6.
+#   AAB_CLAUDE_CODE_OPUS_MODEL
+#                       Unprefixed opus-tier model name, used when /model
+#                       selects the opus tier mid-session. Exported as
+#                       ANTHROPIC_DEFAULT_OPUS_MODEL with the same
+#                       prefix-or-not treatment. Defaults to claude-opus-4-7.
 #   ANTHROPIC_API_KEY   Anthropic first-party API key. Last 20 characters are
 #                       pre-approved in ~/.claude.json's
 #                       customApiKeyResponses.approved so Claude Code won't
@@ -139,6 +159,9 @@ SIGNING_KEY_PUB="${SIGNING_KEY}.pub"
 SSH_MARKER_BEGIN="# >>> autonomous-agent-bootstrap >>>"
 SSH_MARKER_END="# <<< autonomous-agent-bootstrap <<<"
 DEFAULT_CLAUDE_CODE_MODEL="claude-opus-4-7"
+DEFAULT_CLAUDE_CODE_HAIKU_MODEL="claude-haiku-4-5"
+DEFAULT_CLAUDE_CODE_SONNET_MODEL="claude-sonnet-4-6"
+DEFAULT_CLAUDE_CODE_OPUS_MODEL="claude-opus-4-7"
 
 log() { printf '[bootstrap] %s\n' "$*"; }
 warn() { printf '[bootstrap] WARN: %s\n' "$*" >&2; }
@@ -633,8 +656,14 @@ update_bashrc() {
         provider="anthropic"
     fi
     local model="${AAB_CLAUDE_CODE_MODEL:-$DEFAULT_CLAUDE_CODE_MODEL}"
+    local haiku_model="${AAB_CLAUDE_CODE_HAIKU_MODEL:-$DEFAULT_CLAUDE_CODE_HAIKU_MODEL}"
+    local sonnet_model="${AAB_CLAUDE_CODE_SONNET_MODEL:-$DEFAULT_CLAUDE_CODE_SONNET_MODEL}"
+    local opus_model="${AAB_CLAUDE_CODE_OPUS_MODEL:-$DEFAULT_CLAUDE_CODE_OPUS_MODEL}"
     local third_party_prefix="${AAB_CLAUDE_CODE_MODEL_THIRD_PARTY_PREFIX:-}"
     local third_party_model="${third_party_prefix}${model}"
+    local third_party_haiku_model="${third_party_prefix}${haiku_model}"
+    local third_party_sonnet_model="${third_party_prefix}${sonnet_model}"
+    local third_party_opus_model="${third_party_prefix}${opus_model}"
 
     {
         printf '\n%s\n' "${BASHRC_MARKER_BEGIN}"
@@ -666,6 +695,9 @@ update_bashrc() {
             printf '    export ANTHROPIC_API_KEY=%q\n' "$ANTHROPIC_API_KEY"
         fi
         printf '    export ANTHROPIC_MODEL=%q\n' "$model"
+        printf '    export ANTHROPIC_DEFAULT_HAIKU_MODEL=%q\n' "$haiku_model"
+        printf '    export ANTHROPIC_DEFAULT_SONNET_MODEL=%q\n' "$sonnet_model"
+        printf '    export ANTHROPIC_DEFAULT_OPUS_MODEL=%q\n' "$opus_model"
         printf 'else\n'
         printf '    unset ANTHROPIC_API_KEY\n'
         if [ -n "${ANTHROPIC_BASE_URL:-}" ]; then
@@ -675,6 +707,9 @@ update_bashrc() {
             printf '    export ANTHROPIC_AUTH_TOKEN=%q\n' "$ANTHROPIC_AUTH_TOKEN"
         fi
         printf '    export ANTHROPIC_MODEL=%q\n' "$third_party_model"
+        printf '    export ANTHROPIC_DEFAULT_HAIKU_MODEL=%q\n' "$third_party_haiku_model"
+        printf '    export ANTHROPIC_DEFAULT_SONNET_MODEL=%q\n' "$third_party_sonnet_model"
+        printf '    export ANTHROPIC_DEFAULT_OPUS_MODEL=%q\n' "$third_party_opus_model"
         printf '    export CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS=1\n'
         printf 'fi\n\n'
 
@@ -706,7 +741,7 @@ update_bashrc() {
             '}'
         printf '%s\n' "${BASHRC_MARKER_END}"
     } >> "${BASHRC}"
-    log "Wrote autonomous-agent-bootstrap block to ${BASHRC} (provider=${provider}, model=${model})."
+    log "Wrote autonomous-agent-bootstrap block to ${BASHRC} (provider=${provider}, model=${model}, haiku=${haiku_model}, sonnet=${sonnet_model}, opus=${opus_model})."
 }
 
 # ---------------------------------------------------------------------------
