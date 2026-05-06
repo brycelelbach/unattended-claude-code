@@ -94,9 +94,9 @@ If you didn't pass `GH_TOKEN`, sign in to gh (`gh auth login`) before using GitH
 
 To wire in GitHub SSH keys, export `GH_AUTH_SSH_PRIVATE_KEY_B64` (auth identity for `git`-over-SSH) and/or `GIT_SIGNING_PRIVATE_KEY_B64` (commit & tag signing) before running the bootstrap. See [SSH keys](#ssh-keys) for details.
 
-### 4. Config file
+### 4. Config file or stdin
 
-Instead of long `export` chains, drop the same `KEY=VALUE` pairs in a file and pass its path as a positional arg:
+Instead of long `export` chains, drop the same `KEY=VALUE` pairs in a file and pass its path as a positional arg, or pipe them on stdin:
 
 ```bash
 cat > /tmp/aab.conf <<'CONF'
@@ -108,22 +108,43 @@ GIT_AUTHOR_NAME=Your Name
 GIT_AUTHOR_EMAIL=you@example.com
 CONF
 
-# From a local checkout:
+# From a local checkout, by path:
 bash bootstrap.bash /tmp/aab.conf
 
-# Or from curl-pipe-bash — note the '-s --' that hands the positional
-# arg through to the piped script:
+# From a local checkout, by stdin (heredoc, redirect, or any non-TTY pipe):
+bash bootstrap.bash <<'CONF'
+AAB_CLAUDE_CODE_MODEL=claude-opus-4-7
+ANTHROPIC_API_KEY=...
+GH_TOKEN=...
+CONF
+
+# From curl-pipe-bash with a positional path. The `-s --` hands the
+# positional arg through to the piped script:
 curl -fsSL https://raw.githubusercontent.com/brycelelbach/autonomous-agent-bootstrap/main/bootstrap.bash | bash -s -- /tmp/aab.conf
+
+# From curl-pipe-bash with stdin. Process substitution (`bash <(...)`)
+# frees stdin for the heredoc — the curl-pipe-bash form (`curl ... |
+# bash`) leaves stdin attached to the closed curl pipe, so heredocs
+# don't reach the script:
+bash <(curl -fsSL https://raw.githubusercontent.com/brycelelbach/autonomous-agent-bootstrap/main/bootstrap.bash) <<'CONF'
+AAB_CLAUDE_CODE_MODEL=claude-opus-4-7
+ANTHROPIC_API_KEY=...
+GH_TOKEN=...
+CONF
 ```
 
-Supported line shapes:
+The file (or stdin) is sourced via `set -a; . file; set +a`, so it has full access to bash syntax:
 
 - `KEY=value`, `KEY="value with spaces"`, `KEY='single quoted'`
-- optional leading `export ` (for files that double as a sourceable shell snippet); any amount of whitespace between `export` and the key is tolerated
-- `#` at the start of a line is a comment; blank lines are ignored
-- malformed lines (no `=`, or a key that isn't a valid shell identifier) emit a warning and are skipped
+- `KEY="${OTHER:-default}"` and other parameter-expansion forms
+- `KEY="$(some-cmd)"` command substitutions
+- `\`-quoted multi-line values
+- optional leading `export ` (with `KEY=value` semantics either way)
+- `#` line comments anywhere; blank lines are ignored
 
-**Values are literal — no shell expansion.** `FOO=$BAR` sets `FOO` to the literal string `$BAR`, not the value of `$BAR` in your shell. This is deliberate: the parser is a KEY=VALUE reader, not a `source`, so a fat-fingered or malicious config file can't run arbitrary shell. If you want a templated config, expand in your shell first (`MY_GATEWAY_BASE=https://… envsubst < template > final.conf`) and pass the expanded file to the bootstrap.
+Values containing shell metacharacters (`&`, `|`, `;`, `$`, `*`, `(`, `)`) need to be quoted — bash treats `URL=https://x.com/?a=b&c=d` as backgrounded `URL=...&` plus `c=d`, not a single value. Wrap the right-hand side in `"..."` or `'...'` whenever it contains anything that isn't `[A-Za-z0-9_./:%@-]`.
+
+The flip side: a malformed config file aborts the bootstrap rather than silently warning. A typo'd line or one that runs an unknown command short-circuits the run on the first error, which is the safer default for a credentials-loading step.
 
 **Env beats file.** If a variable is already set in the shell when you invoke the bootstrap, that value wins over the file entry. This makes one-off overrides easy to test without editing the file:
 
@@ -133,7 +154,7 @@ AAB_CLAUDE_CODE_MODEL=claude-haiku-4-5 bash bootstrap.bash /tmp/aab.conf
 
 A corollary: there's no way to *unset* a variable from the file — if `FOO` is already exported in your shell, the file cannot force it to "unset" (only the env→file direction is valid). `FOO= bash bootstrap.bash aab.conf` lets you explicitly set `FOO` to empty, which most of the bootstrap's optional keys treat as "unset".
 
-A missing / unreadable config-file path causes the bootstrap to exit non-zero before touching anything.
+A missing / unreadable config-file path causes the bootstrap to exit non-zero before touching anything. An empty stdin (no positional path, TTY-attached or no data piped) is treated the same as recipe 1–3: the bootstrap runs with whatever env vars are already set in the shell.
 
 ## Switching inference providers
 

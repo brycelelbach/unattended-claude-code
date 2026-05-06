@@ -133,12 +133,24 @@
 # run, so re-running without ANTHROPIC_API_KEY set will drop a previously-
 # written export (this is intentional — re-runs match the current env).
 #
-# Optional positional arg: a path to a config file containing the same
-# KEY=VALUE settings the env-var contract above accepts. When passed,
-# the script sources it before running (`bash bootstrap.bash ./aab.conf`
-# or `curl ... | bash -s -- ./aab.conf`). Env vars already set in the
-# shell WIN over file entries — so `FOO=override bash bootstrap.bash
-# aab.conf` is a one-line debug override without touching the file.
+# Optional config input — settings using the env-var contract above can
+# come in via either of two channels (in order of preference):
+#
+#   1. Positional arg: a path to a config file
+#      (`bash bootstrap.bash ./aab.conf` or `curl ... | bash -s -- ./aab.conf`).
+#   2. Stdin pipe: heredoc, file redirect, or any non-TTY stdin
+#      (`bash bootstrap.bash <<EOF ... EOF`,
+#       `bash <(curl ...) <<EOF ... EOF`).
+#
+# The file (or piped content) is sourced via `set -a; . file; set +a`, so
+# it has full access to bash syntax: `${VAR:-default}`, `$(cmd)`, multi-
+# line strings, comments. Values containing shell metacharacters (`&`,
+# `|`, `;`, `$`, …) need to be quoted; plain `KEY=value` lines do not.
+#
+# Caller-supplied env vars beat file values: `FOO=override bash
+# bootstrap.bash aab.conf` is a one-line debug override without touching
+# the file. An explicitly-empty `FOO= bash …` counts as set and still
+# wins.
 
 set -euo pipefail
 
@@ -745,17 +757,30 @@ update_bashrc() {
 }
 
 # ---------------------------------------------------------------------------
-# Optional config file (positional arg).
+# Optional config input (positional arg or stdin).
 #
-# When main() is passed a path as its first argument, load_config_file
-# parses KEY=VALUE pairs and exports them, with one important precedence
-# rule: env vars already set in the shell WIN over file entries. That
-# makes the pattern `FOO=override bash bootstrap.bash /path/to/conf`
-# intuitive for one-off debugging without editing the file.
+# main() picks one of three modes, in order:
+#   1. positional path: `bash bootstrap.bash /path/to/aab.conf` — load_config_file
+#      reads the file at the supplied path.
+#   2. stdin pipe:      `bash bootstrap.bash <<EOF ... EOF` (or any non-TTY
+#      stdin shape) — load_config_stdin reads stdin into a temp file and loads
+#      that. The temp file is removed before main() returns.
+#   3. neither:         the script runs with whatever env vars the shell
+#      already has, no config-file step.
 #
-# Supported line shapes: `KEY=value`, `KEY="quoted value"`, `KEY='single
-# quoted'`, optional leading `export `, lines starting with `#`, blank
-# lines. Anything else triggers a warn and is skipped.
+# In modes 1 and 2 the config text is sourced via `set -a; . <path>; set +a`.
+# That's the standard bash idiom for KEY=VALUE files and gives the file
+# access to the full shell language: `${VAR:-default}` expansions, `$(cmd)`
+# substitutions, multi-line strings, comments, etc. Values containing shell
+# metacharacters (`&`, `|`, `;`, `$`, etc.) need to be quoted; bare quoted
+# `KEY=value` lines need no escaping.
+#
+# Caller-supplied env vars beat file values: load_config_{file,stdin}
+# snapshot the exported environment before sourcing and replay it after, so
+# a one-off `FOO=override bash bootstrap.bash /path/to/conf` debug invocation
+# wins over whatever the file said. An explicitly-empty `FOO= bash …`
+# counts as set and also wins (file cannot force-unset what the shell
+# explicitly set).
 # ---------------------------------------------------------------------------
 load_config_file() {
     local f="$1"
@@ -764,64 +789,42 @@ load_config_file() {
         exit 1
     fi
     log "Loading config from $f (env vars already set in the shell take precedence)."
+    _source_config "$f"
+}
 
-    local line key val
-    while IFS= read -r line || [ -n "$line" ]; do
-        # Comments and blank lines.
-        case "$line" in
-            ''|'#'*) continue ;;
-        esac
-        # Trim leading/trailing whitespace.
-        line="${line#"${line%%[![:space:]]*}"}"
-        line="${line%"${line##*[![:space:]]}"}"
-        [ -z "$line" ] && continue
-        case "$line" in '#'*) continue ;; esac
-        # Allow a leading `export ` — with any amount / mix of whitespace
-        # (space, tab, multiple) between the keyword and the key. The regex
-        # guards against false matches like `exportable_thing=x` (where
-        # `export` is a prefix of the key, not a keyword).
-        if [[ "$line" =~ ^export[[:space:]] ]]; then
-            line="${line#export}"
-            line="${line#"${line%%[![:space:]]*}"}"
-        fi
+load_config_stdin() {
+    local tmp
+    tmp=$(mktemp)
+    cat > "$tmp"
+    if [ ! -s "$tmp" ]; then
+        rm -f "$tmp"
+        return 0
+    fi
+    log "Loading config from stdin (env vars already set in the shell take precedence)."
+    _source_config "$tmp"
+    rm -f "$tmp"
+}
 
-        # Require a `=`.
-        case "$line" in *=*) ;;
-            *)
-                warn "config file: Ignoring malformed line (no '='): $line."
-                continue
-                ;;
-        esac
-
-        key="${line%%=*}"
-        val="${line#*=}"
-
-        # Key must be a valid shell identifier.
-        if ! [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
-            warn "config file: Ignoring malformed line (bad key): $line."
-            continue
-        fi
-
-        # Strip surrounding single- or double-quotes if balanced.
-        if [ "${#val}" -ge 2 ]; then
-            case "$val" in
-                \"*\") val="${val#\"}"; val="${val%\"}" ;;
-                \'*\') val="${val#\'}"; val="${val%\'}" ;;
-            esac
-        fi
-
-        # Env-beats-file: if the variable is already set in the shell
-        # (even to an empty string), leave it alone.
-        if [ -n "${!key+x}" ]; then
-            continue
-        fi
-        export "$key=$val"
-    done < "$f"
+# Source the config at <path> with auto-export, preserving caller-supplied env
+# vars. `declare -px` snapshots every exported variable; we strip the
+# readonly entries (re-eval'ing those would error) and rewrite `declare -x`
+# as `export` so the snapshot restores at the calling shell's scope rather
+# than going out of scope when the function returns.
+_source_config() {
+    local src="$1" snapshot
+    snapshot=$(declare -px | grep -v '^declare -[a-z]*r' | sed 's/^declare -x /export /')
+    set -a
+    # shellcheck source=/dev/null
+    . "$src"
+    set +a
+    eval "$snapshot"
 }
 
 main() {
     if [ -n "${1:-}" ]; then
         load_config_file "$1"
+    elif [ ! -t 0 ]; then
+        load_config_stdin
     fi
     install_base_deps
     install_claude
