@@ -281,6 +281,7 @@ You can upload the same public key under both types if you want a single blob to
 | `~/.ssh/id_aab_auth`, `~/.ssh/id_aab_auth.pub` | Written only when `GH_AUTH_SSH_PRIVATE_KEY_B64` is set. Private key mode 0600, public key mode 0644, `~/.ssh` dir mode 0700. |
 | `~/.ssh/id_aab_signing`, `~/.ssh/id_aab_signing.pub` | Written only when `GIT_SIGNING_PRIVATE_KEY_B64` is set. Same mode layout as the auth pair. |
 | `~/.ssh/config` | Managed block (same `# >>> … <<<` marker pair as `~/.bashrc`) mapping `github.com` to `~/.ssh/id_aab_auth`. Only touched when `GH_AUTH_SSH_PRIVATE_KEY_B64` is set — the signing-only flow leaves `~/.ssh/config` alone. Pre-existing entries outside the managed block are preserved. |
+| `/etc/environment` | Managed block (same `# >>> … <<<` marker pair) mirroring the resolved provider / model / token state into a `KEY=VALUE` file PAM loads for every session. Pre-existing entries outside the block are preserved; re-runs replace the block in place. Requires `sudo`; the bootstrap warns and skips this step if passwordless `sudo` isn't available. |
 | System-wide | `gh` package, its apt source + signing keyring (requires `sudo`; script skips with a warning if passwordless `sudo` isn't available). `openssh-client` is also installed on demand when either SSH-key env var is set and `ssh-keygen` isn't already available. |
 
 ## Re-running
@@ -292,6 +293,7 @@ Safe to re-run. Each run matches the current environment:
 - `gh` and `claude` are skipped if already installed.
 - `git config --global` is only touched for variables that are set.
 - The `~/.ssh/config` managed block is replaced in place on re-run; pre-existing entries outside the block are preserved. Re-running without `GH_AUTH_SSH_PRIVATE_KEY_B64` set leaves `~/.ssh/config` untouched — the block is **not** removed automatically. To turn signing off, use `git config --global --unset commit.gpgsign` (and similar) after dropping `GIT_SIGNING_PRIVATE_KEY_B64`.
+- The `/etc/environment` managed block is replaced in place on re-run, mirroring the same resolved-at-bootstrap-time provider / model / token state that goes into `~/.bashrc`. The runtime `claude_code_switch_inference_provider` shell function only updates `~/.bashrc` (interactive sessions); to make a switch visible to non-interactive shells (ssh remote command, systemd `EnvironmentFile=`), re-run the bootstrap with the new provider.
 
 ## Running the tests
 

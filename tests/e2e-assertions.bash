@@ -103,4 +103,25 @@ gh_helper=$(git config --global --get 'credential.https://github.com.helper' || 
     || fail "gh credential helper not registered (got: '$gh_helper')."
 pass "gh registered as github.com credential helper."
 
+# 11. /etc/environment carries the same provider / model / token state
+# that ~/.bashrc does, so non-interactive shells (ssh remote command,
+# systemd EnvironmentFile=, …) see the env vars too.
+ETC_ENV=/etc/environment
+if [ ! -r "$ETC_ENV" ]; then
+    fail "$ETC_ENV not readable; non-interactive shells cannot pick up AAB env vars."
+fi
+grep -q '^# >>> autonomous-agent-bootstrap >>>$' "$ETC_ENV" \
+    || fail "$ETC_ENV begin marker missing."
+grep -q '^# <<< autonomous-agent-bootstrap <<<$' "$ETC_ENV" \
+    || fail "$ETC_ENV end marker missing."
+etc_begin=$(grep -c '^# >>> autonomous-agent-bootstrap >>>$' "$ETC_ENV")
+etc_end=$(grep -c '^# <<< autonomous-agent-bootstrap <<<$' "$ETC_ENV")
+[ "$etc_begin" -eq 1 ] || fail "Expected 1 $ETC_ENV begin marker, got $etc_begin."
+[ "$etc_end"   -eq 1 ] || fail "Expected 1 $ETC_ENV end marker, got $etc_end."
+grep -q '^AAB_CLAUDE_CODE_INFERENCE_PROVIDER=' "$ETC_ENV" \
+    || fail "AAB_CLAUDE_CODE_INFERENCE_PROVIDER missing from $ETC_ENV."
+grep -q '^ANTHROPIC_MODEL=' "$ETC_ENV" \
+    || fail "ANTHROPIC_MODEL missing from $ETC_ENV."
+pass "$ETC_ENV managed block present exactly once with provider / model state."
+
 echo "All e2e assertions passed."
