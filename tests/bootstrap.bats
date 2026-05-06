@@ -391,6 +391,80 @@ assert "private/no-access" not in repos, repos
 PY
 }
 
+# Drop a fake `claude` on PATH that records every invocation to
+# $TEST_HOME/claude-invocations and exits 0. Lets the
+# install_claude_code_plugins tests below assert the marketplace-add
+# and plugin-install calls actually fired with the expected arguments.
+setup_fake_claude() {
+    cat > "$FAKE_BIN/claude" <<SH
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >> "$TEST_HOME/claude-invocations"
+exit 0
+SH
+    chmod +x "$FAKE_BIN/claude"
+}
+
+@test "install_claude_code_plugins runs claude plugin marketplace add + install for each enabled plugin" {
+    setup_plugin_fakes
+    setup_fake_claude
+    export FAKE_GH_AUTH_OK=1
+    # One marketplace, two plugins — exercises the dedupe (one
+    # `marketplace add`) and the per-plugin install loop.
+    cat > "$FAKE_GH_DIR/acme__multi.json" <<JSON
+{"name": "acme-multi", "plugins": [{"name": "alpha"}, {"name": "beta"}]}
+JSON
+    echo "acme/multi" > "$TEST_HOME/plugins.txt"
+    export AAB_CLAUDE_CODE_PLUGINS_FILE="$TEST_HOME/plugins.txt"
+
+    write_settings
+    install_claude_code_plugins
+
+    grep -Fxq 'plugin marketplace add acme/multi' "$TEST_HOME/claude-invocations"
+    grep -Fxq 'plugin install alpha@acme-multi --scope user' "$TEST_HOME/claude-invocations"
+    grep -Fxq 'plugin install beta@acme-multi --scope user' "$TEST_HOME/claude-invocations"
+    # Dedupe: one marketplace add, not two.
+    [ "$(grep -c 'plugin marketplace add' "$TEST_HOME/claude-invocations")" -eq 1 ]
+}
+
+@test "install_claude_code_plugins runs marketplace-add once per repo across distinct plugin lines" {
+    setup_plugin_fakes
+    setup_fake_claude
+    export FAKE_GH_AUTH_OK=1
+    # Two repos, one plugin each — exercises the multi-repo loop.
+    write_marketplace_fixture "$FAKE_GH_DIR" "alpha/m" "alpha-m" "p1"
+    write_marketplace_fixture "$FAKE_GH_DIR" "beta/m" "beta-m" "p2"
+    printf '%s\n%s\n' "alpha/m" "beta/m" > "$TEST_HOME/plugins.txt"
+    export AAB_CLAUDE_CODE_PLUGINS_FILE="$TEST_HOME/plugins.txt"
+
+    write_settings
+    install_claude_code_plugins
+
+    grep -Fxq 'plugin marketplace add alpha/m' "$TEST_HOME/claude-invocations"
+    grep -Fxq 'plugin marketplace add beta/m' "$TEST_HOME/claude-invocations"
+    grep -Fxq 'plugin install p1@alpha-m --scope user' "$TEST_HOME/claude-invocations"
+    grep -Fxq 'plugin install p2@beta-m --scope user' "$TEST_HOME/claude-invocations"
+}
+
+@test "install_claude_code_plugins warns and skips when claude binary is absent" {
+    setup_plugin_fakes
+    # Don't call setup_fake_claude — leave PATH without a claude binary.
+    export FAKE_GH_AUTH_OK=1
+    write_marketplace_fixture "$FAKE_GH_DIR" "acme/m" "acme-m" "widget"
+    echo "acme/m" > "$TEST_HOME/plugins.txt"
+    export AAB_CLAUDE_CODE_PLUGINS_FILE="$TEST_HOME/plugins.txt"
+
+    write_settings
+    run install_claude_code_plugins
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"WARN:"*"claude binary not on PATH"* ]]
+    # settings.json was still written even when the install step is skipped.
+    python3 - <<PY
+import json
+d = json.load(open("$SETTINGS_FILE"))
+assert d["enabledPlugins"]["widget@acme-m"] is True, d
+PY
+}
+
 # ---------------------------------------------------------------------------
 # install_auth_ssh_key / install_signing_ssh_key: cover the two distinct
 # roles (GitHub SSH auth vs git commit/tag signing), including:
