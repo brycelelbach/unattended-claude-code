@@ -626,6 +626,82 @@ for t in tuples:
 with open(path, "w") as f:
     json.dump(data, f, indent=2)
 PY
+
+    # settings.json's extraKnownMarketplaces and enabledPlugins are
+    # advisory: Claude Code's `plugin` CLI maintains its own registry
+    # at ~/.claude/plugins/{known_marketplaces,installed_plugins}.json
+    # that only `claude plugin marketplace add` + `claude plugin
+    # install` populate. Without those, every `claude` (and every
+    # ACP-driven harness like @openclaw/acpx that spawns claude) starts
+    # with an empty installed_plugins.json — the agent's session-start
+    # skills list contains only the bundled defaults, none of the
+    # user-configured plugins. Materialise the install here so the
+    # bootstrap leaves the user with a fully-registered plugin set.
+    local claude_bin=""
+    if command -v claude >/dev/null 2>&1; then
+        claude_bin=$(command -v claude)
+    elif [ -x "${HOME}/.local/bin/claude" ]; then
+        claude_bin="${HOME}/.local/bin/claude"
+    else
+        warn "claude binary not on PATH; skipping plugin install (settings.json was still written)."
+        return
+    fi
+
+    # Snapshot the post-write_settings + post-merge settings.json so
+    # the re-merge below can restore AAB-managed top-level keys that
+    # Claude Code's plugin CLI strips on re-serialise.
+    cp "$SETTINGS_FILE" "${SETTINGS_FILE}.pre-plugin-install.bak"
+
+    # Dedupe repos before `marketplace add` (one marketplace can ship
+    # several plugins; a 1-to-1 add per tuple would re-clone N times).
+    local -A seen_repos=()
+    local t repo marketplace plugin
+    for t in "${tuples[@]}"; do
+        repo="${t%%|*}"
+        if [ -z "${seen_repos[$repo]:-}" ]; then
+            log "Adding marketplace ${repo} to claude's plugin registry."
+            "$claude_bin" plugin marketplace add "$repo" 2>&1 | sed 's/^/  /' || \
+                warn "claude plugin marketplace add ${repo} returned non-zero (private repo without access? skipping)."
+            seen_repos[$repo]=1
+        fi
+    done
+
+    for t in "${tuples[@]}"; do
+        repo="${t%%|*}"
+        marketplace="${t#*|}"
+        plugin="${marketplace#*|}"
+        marketplace="${marketplace%|*}"
+        log "Installing plugin ${plugin}@${marketplace}."
+        "$claude_bin" plugin install "${plugin}@${marketplace}" --scope user 2>&1 | sed 's/^/  /' || \
+            warn "claude plugin install ${plugin}@${marketplace} returned non-zero."
+    done
+
+    # `claude plugin marketplace add` / `claude plugin install --scope
+    # user` re-serialise ~/.claude/settings.json against Claude Code's
+    # internal schema, which drops any top-level keys the schema
+    # doesn't enumerate (notably `effortLevel` — written by
+    # write_settings, asserted by tests/e2e-assertions.bash). Re-merge
+    # the AAB-managed top-level keys back in from a snapshot taken
+    # before the claude calls ran so the on-disk shape stays a
+    # superset of what write_settings produced.
+    if [ -f "${SETTINGS_FILE}.pre-plugin-install.bak" ]; then
+        python3 - "$SETTINGS_FILE" "${SETTINGS_FILE}.pre-plugin-install.bak" <<'PY'
+import json, sys
+live_path, snap_path = sys.argv[1], sys.argv[2]
+with open(live_path) as f:
+    live = json.load(f)
+with open(snap_path) as f:
+    snap = json.load(f)
+# Re-merge keys that AAB owns but Claude Code's plugin CLI strips on
+# re-serialise. Keep the live values for keys the CLI updated.
+for k in ("model", "effortLevel", "permissions", "skipDangerousModePermissionPrompt", "env"):
+    if k in snap and k not in live:
+        live[k] = snap[k]
+with open(live_path, "w") as f:
+    json.dump(live, f, indent=2)
+PY
+        rm -f "${SETTINGS_FILE}.pre-plugin-install.bak"
+    fi
 }
 
 # ---------------------------------------------------------------------------
