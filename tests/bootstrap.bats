@@ -579,16 +579,18 @@ EOF
 }
 
 # ---------------------------------------------------------------------------
-# load_config_file: covers the KEY=VALUE parser used when main() is given a
-# positional config-file argument. Exercises quoting, comments, malformed
-# lines, env-beats-file precedence, and the missing-file error path.
+# load_config_file / load_config_stdin: covers the bash-source-backed config
+# loader used when main() is given a positional path or non-TTY stdin.
+# Exercises quoting, comments, env-beats-file precedence, the missing-file
+# and malformed-input error paths, shell-expansion features, and the
+# stdin variant.
 # ---------------------------------------------------------------------------
 
 @test "load_config_file populates unset env vars from KEY=VALUE lines" {
     cat > "$TEST_HOME/aab.conf" <<'EOF'
 AAB_CLAUDE_CODE_MODEL=claude-sonnet-4-6
 AAB_CLAUDE_CODE_INFERENCE_PROVIDER=third-party
-GIT_AUTHOR_NAME=Alice Example
+GIT_AUTHOR_NAME="Alice Example"
 GIT_AUTHOR_EMAIL=alice@example.com
 EOF
     load_config_file "$TEST_HOME/aab.conf"
@@ -602,7 +604,7 @@ EOF
     export AAB_CLAUDE_CODE_MODEL="claude-opus-4-7"
     cat > "$TEST_HOME/aab.conf" <<'EOF'
 AAB_CLAUDE_CODE_MODEL=claude-sonnet-4-6
-GIT_AUTHOR_NAME=Alice Example
+GIT_AUTHOR_NAME="Alice Example"
 EOF
     load_config_file "$TEST_HOME/aab.conf"
     # Env-set value preserved.
@@ -633,27 +635,9 @@ EOF
     [ "$GH_TOKEN" = "ghp_abc123" ]
 }
 
-@test "load_config_file tolerates extra whitespace between 'export' and the key" {
-    # Two spaces, then tabs, then mixed whitespace — all should be trimmed.
-    printf 'export  GH_TOKEN=ghp_two_spaces\n'              >  "$TEST_HOME/aab.conf"
-    printf 'export\tAAB_CLAUDE_CODE_MODEL=claude-haiku-4-5\n' >> "$TEST_HOME/aab.conf"
-    printf 'export   \tGIT_AUTHOR_NAME=Alice\n'              >> "$TEST_HOME/aab.conf"
-
-    run load_config_file "$TEST_HOME/aab.conf"
-    [ "$status" -eq 0 ]
-    # No malformed-line warnings — the whitespace should be eaten cleanly.
-    [[ "$output" != *"malformed"* ]]
-
-    # Re-load in-process to check values (run ran in a subshell).
-    load_config_file "$TEST_HOME/aab.conf"
-    [ "$GH_TOKEN" = "ghp_two_spaces" ]
-    [ "$AAB_CLAUDE_CODE_MODEL" = "claude-haiku-4-5" ]
-    [ "$GIT_AUTHOR_NAME" = "Alice" ]
-}
-
 @test "load_config_file preserves values containing '=' (only the FIRST '=' splits)" {
     cat > "$TEST_HOME/aab.conf" <<'EOF'
-ANTHROPIC_BASE_URL=https://example.com/v1?foo=bar&baz=qux
+ANTHROPIC_BASE_URL="https://example.com/v1?foo=bar&baz=qux"
 EOF
     load_config_file "$TEST_HOME/aab.conf"
     [ "$ANTHROPIC_BASE_URL" = "https://example.com/v1?foo=bar&baz=qux" ]
@@ -664,41 +648,83 @@ EOF
 # comment at top
 
 # another comment
-AAB_CLAUDE_CODE_MODEL=claude-opus-4-7
+AAB_CLAUDE_CODE_MODEL=claude-opus-4-7  # trailing comment
 
 EOF
     run load_config_file "$TEST_HOME/aab.conf"
     [ "$status" -eq 0 ]
-    # No warnings about malformed lines.
-    [[ "$output" != *"malformed"* ]]
 
     # Verify the one real key actually landed (re-run in-process).
     load_config_file "$TEST_HOME/aab.conf"
     [ "$AAB_CLAUDE_CODE_MODEL" = "claude-opus-4-7" ]
 }
 
-@test "load_config_file warns and skips malformed lines, but loads good ones" {
+@test "load_config_file expands \${VAR:-default} parameter expansions" {
+    # bash sourcing means the file has access to the live shell — defaults,
+    # parameter expansion, command substitution all work.
+    cat > "$TEST_HOME/aab.conf" <<'EOF'
+AAB_CLAUDE_CODE_MODEL="${AAB_CLAUDE_CODE_MODEL:-claude-haiku-4-5}"
+GIT_AUTHOR_NAME="Default $(echo Alice)"
+EOF
+    load_config_file "$TEST_HOME/aab.conf"
+    [ "$AAB_CLAUDE_CODE_MODEL" = "claude-haiku-4-5" ]
+    [ "$GIT_AUTHOR_NAME" = "Default Alice" ]
+}
+
+@test "load_config_file aborts on malformed input under set -e" {
+    # `set -a; . file; set +a` is strict: a bad-identifier line is a bash
+    # syntax error and a no-equals line is a "command not found" exit. Both
+    # short-circuit the load — the safer default for a credentials-loading
+    # step than the previous warn-and-skip.
+    #
+    # bats's `run` helper turns `set -e` off, so to assert the real-world
+    # abort behavior we re-source bootstrap.bash inside a fresh `bash -c`
+    # that re-enables `set -euo pipefail`.
     cat > "$TEST_HOME/aab.conf" <<'EOF'
 this-line-has-no-equals
 AAB_CLAUDE_CODE_MODEL=claude-opus-4-7
-1BADKEY=starts-with-digit
-GIT_AUTHOR_NAME=Alice
 EOF
-    run load_config_file "$TEST_HOME/aab.conf"
-    [ "$status" -eq 0 ]
-    [[ "$output" == *"no '='"* ]]
-    [[ "$output" == *"bad key"* ]]
-
-    # Good keys still loaded.
-    load_config_file "$TEST_HOME/aab.conf"
-    [ "$AAB_CLAUDE_CODE_MODEL" = "claude-opus-4-7" ]
-    [ "$GIT_AUTHOR_NAME" = "Alice" ]
+    run bash -c "
+        set -euo pipefail
+        source '$REPO_ROOT/bootstrap.bash'
+        load_config_file '$TEST_HOME/aab.conf'
+        echo 'should-not-reach'
+    "
+    [ "$status" -ne 0 ]
+    [[ "$output" != *"should-not-reach"* ]]
 }
 
 @test "load_config_file: missing file errors out non-zero" {
     run load_config_file "$TEST_HOME/does-not-exist.conf"
     [ "$status" -ne 0 ]
     [[ "$output" == *"not found or not readable"* ]]
+}
+
+@test "load_config_stdin reads KEY=VALUE pairs piped on stdin" {
+    load_config_stdin <<'EOF'
+AAB_CLAUDE_CODE_MODEL=claude-sonnet-4-6
+GIT_AUTHOR_NAME="Alice Example"
+EOF
+    [ "$AAB_CLAUDE_CODE_MODEL" = "claude-sonnet-4-6" ]
+    [ "$GIT_AUTHOR_NAME" = "Alice Example" ]
+}
+
+@test "load_config_stdin: env beats stdin" {
+    export AAB_CLAUDE_CODE_MODEL="claude-opus-4-7"
+    load_config_stdin <<'EOF'
+AAB_CLAUDE_CODE_MODEL=claude-sonnet-4-6
+GIT_AUTHOR_NAME=Alice
+EOF
+    [ "$AAB_CLAUDE_CODE_MODEL" = "claude-opus-4-7" ]
+    [ "$GIT_AUTHOR_NAME" = "Alice" ]
+}
+
+@test "load_config_stdin: empty stdin is a silent no-op" {
+    # No body in the heredoc — load_config_stdin sees zero bytes and returns
+    # without touching the env.
+    [ -z "${GIT_AUTHOR_NAME:-}" ]
+    load_config_stdin </dev/null
+    [ -z "${GIT_AUTHOR_NAME:-}" ]
 }
 
 @test "main() runs load_config_file only when given a positional arg (unset env vars populated)" {
