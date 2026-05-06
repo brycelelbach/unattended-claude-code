@@ -653,6 +653,132 @@ EOF
 }
 
 # ---------------------------------------------------------------------------
+# update_etc_environment: covers the /etc/environment managed-block writer
+# used to expose AAB env vars to non-interactive shells (ssh remote command,
+# systemd EnvironmentFile=, etc.). Tests redirect ETC_ENV to a per-test
+# sandbox path and unset SUDO so the install runs as the current user.
+# ---------------------------------------------------------------------------
+
+# Common setup: redirect ETC_ENV under the per-test HOME so update_etc_environment
+# does not need root and does not touch the host's real /etc/environment.
+_etc_env_sandbox() {
+    ETC_ENV="$TEST_HOME/environment"
+    SUDO=""
+}
+
+@test "update_etc_environment writes managed block with both markers (anthropic provider)" {
+    _etc_env_sandbox
+    AAB_CLAUDE_CODE_INFERENCE_PROVIDER="anthropic" \
+    AAB_CLAUDE_CODE_MODEL="claude-opus-4-7" \
+    ANTHROPIC_API_KEY="sk-ant-test-key" \
+    GH_TOKEN="ghp_etc_env_test" \
+        update_etc_environment
+
+    [ -f "$ETC_ENV" ]
+    grep -qF "$ETC_ENV_MARKER_BEGIN" "$ETC_ENV"
+    grep -qF "$ETC_ENV_MARKER_END"   "$ETC_ENV"
+    grep -q  '^AAB_CLAUDE_CODE_INFERENCE_PROVIDER="anthropic"$' "$ETC_ENV"
+    grep -q  '^ANTHROPIC_API_KEY="sk-ant-test-key"$'            "$ETC_ENV"
+    grep -q  '^ANTHROPIC_MODEL="claude-opus-4-7"$'              "$ETC_ENV"
+    grep -q  '^GH_TOKEN="ghp_etc_env_test"$'                    "$ETC_ENV"
+    grep -q  '^CLAUDE_CODE_SANDBOXED="1"$'                      "$ETC_ENV"
+    # Anthropic branch must NOT carry the third-party-only vars.
+    ! grep -q '^ANTHROPIC_BASE_URL='                       "$ETC_ENV"
+    ! grep -q '^ANTHROPIC_AUTH_TOKEN='                     "$ETC_ENV"
+    ! grep -q '^CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS='   "$ETC_ENV"
+}
+
+@test "update_etc_environment writes third-party provider block with prefix-applied model names" {
+    _etc_env_sandbox
+    AAB_CLAUDE_CODE_INFERENCE_PROVIDER="third-party" \
+    AAB_CLAUDE_CODE_MODEL="claude-opus-4-7" \
+    AAB_CLAUDE_CODE_MODEL_THIRD_PARTY_PREFIX="aws/anthropic/bedrock-" \
+    ANTHROPIC_BASE_URL="https://gateway.example.com" \
+    ANTHROPIC_AUTH_TOKEN="bearer-token-xyz" \
+        update_etc_environment
+
+    grep -q '^AAB_CLAUDE_CODE_INFERENCE_PROVIDER="third-party"$' "$ETC_ENV"
+    grep -q '^ANTHROPIC_BASE_URL="https://gateway.example.com"$' "$ETC_ENV"
+    grep -q '^ANTHROPIC_AUTH_TOKEN="bearer-token-xyz"$'          "$ETC_ENV"
+    grep -q '^ANTHROPIC_MODEL="aws/anthropic/bedrock-claude-opus-4-7"$' "$ETC_ENV"
+    grep -q '^ANTHROPIC_DEFAULT_HAIKU_MODEL="aws/anthropic/bedrock-claude-haiku-4-5"$'   "$ETC_ENV"
+    grep -q '^ANTHROPIC_DEFAULT_SONNET_MODEL="aws/anthropic/bedrock-claude-sonnet-4-6"$' "$ETC_ENV"
+    grep -q '^ANTHROPIC_DEFAULT_OPUS_MODEL="aws/anthropic/bedrock-claude-opus-4-7"$'     "$ETC_ENV"
+    grep -q '^CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS="1"$'       "$ETC_ENV"
+    # Third-party branch must NOT carry the first-party-only API key.
+    ! grep -q '^ANTHROPIC_API_KEY=' "$ETC_ENV"
+}
+
+@test "update_etc_environment is idempotent (single managed block after two runs)" {
+    _etc_env_sandbox
+    AAB_CLAUDE_CODE_MODEL="claude-opus-4-7" GH_TOKEN="ghp_idem" update_etc_environment
+    AAB_CLAUDE_CODE_MODEL="claude-opus-4-7" GH_TOKEN="ghp_idem" update_etc_environment
+
+    local begin_count end_count
+    begin_count=$(grep -cF "$ETC_ENV_MARKER_BEGIN" "$ETC_ENV")
+    end_count=$(grep -cF "$ETC_ENV_MARKER_END"   "$ETC_ENV")
+    [ "$begin_count" -eq 1 ]
+    [ "$end_count"   -eq 1 ]
+}
+
+@test "update_etc_environment preserves pre-existing non-managed entries" {
+    _etc_env_sandbox
+    cat > "$ETC_ENV" <<'EOF'
+PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+LC_ALL="C.UTF-8"
+EOF
+    AAB_CLAUDE_CODE_MODEL="claude-opus-4-7" GH_TOKEN="ghp_keep" update_etc_environment
+
+    # Pre-existing entries survive.
+    grep -q '^PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"$' "$ETC_ENV"
+    grep -q '^LC_ALL="C.UTF-8"$' "$ETC_ENV"
+    # AAB block sits below them.
+    grep -qF "$ETC_ENV_MARKER_BEGIN" "$ETC_ENV"
+    grep -q '^GH_TOKEN="ghp_keep"$'  "$ETC_ENV"
+}
+
+@test "update_etc_environment replaces a stale managed block in place (re-runs match current env)" {
+    _etc_env_sandbox
+    AAB_CLAUDE_CODE_INFERENCE_PROVIDER="anthropic" \
+    ANTHROPIC_API_KEY="sk-ant-old" GH_TOKEN="ghp_old" update_etc_environment
+    grep -q '^ANTHROPIC_API_KEY="sk-ant-old"$' "$ETC_ENV"
+
+    # Second run with different env: old values must NOT linger.
+    unset ANTHROPIC_API_KEY GH_TOKEN
+    AAB_CLAUDE_CODE_INFERENCE_PROVIDER="anthropic" \
+    ANTHROPIC_API_KEY="sk-ant-new" GH_TOKEN="ghp_new" update_etc_environment
+    grep -q '^ANTHROPIC_API_KEY="sk-ant-new"$' "$ETC_ENV"
+    grep -q '^GH_TOKEN="ghp_new"$'             "$ETC_ENV"
+    ! grep -q '^ANTHROPIC_API_KEY="sk-ant-old"$' "$ETC_ENV"
+    ! grep -q '^GH_TOKEN="ghp_old"$'             "$ETC_ENV"
+}
+
+@test "update_etc_environment file mode is 0644" {
+    _etc_env_sandbox
+    AAB_CLAUDE_CODE_MODEL="claude-opus-4-7" update_etc_environment
+    [ "$(stat -c '%a' "$ETC_ENV")" = "644" ]
+}
+
+@test "update_etc_environment skips when ANTHROPIC_API_KEY is unset (anthropic branch)" {
+    _etc_env_sandbox
+    # No ANTHROPIC_API_KEY in env. The block should still be written but
+    # without a stale `ANTHROPIC_API_KEY=` line — re-runs match the
+    # current env.
+    AAB_CLAUDE_CODE_INFERENCE_PROVIDER="anthropic" \
+    AAB_CLAUDE_CODE_MODEL="claude-opus-4-7" update_etc_environment
+
+    grep -qF "$ETC_ENV_MARKER_BEGIN" "$ETC_ENV"
+    grep -q  '^ANTHROPIC_MODEL="claude-opus-4-7"$' "$ETC_ENV"
+    ! grep -q '^ANTHROPIC_API_KEY=' "$ETC_ENV"
+}
+
+@test "update_etc_environment defaults to anthropic provider when AAB_CLAUDE_CODE_INFERENCE_PROVIDER unset" {
+    _etc_env_sandbox
+    AAB_CLAUDE_CODE_MODEL="claude-opus-4-7" update_etc_environment
+    grep -q '^AAB_CLAUDE_CODE_INFERENCE_PROVIDER="anthropic"$' "$ETC_ENV"
+}
+
+# ---------------------------------------------------------------------------
 # load_config_file / load_config_stdin: covers the bash-source-backed config
 # loader used when main() is given a positional path or non-TTY stdin.
 # Exercises quoting, comments, env-beats-file precedence, the missing-file

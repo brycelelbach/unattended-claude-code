@@ -36,6 +36,11 @@
 #      interactive shells pick up ~/.local/bin, run `claude` with
 #      --dangerously-skip-permissions, and — if ANTHROPIC_API_KEY was set
 #      at bootstrap time — export it for future shells.
+#   9. Mirrors the resolved credential / config env vars (provider tokens,
+#      model names, GH_TOKEN, …) into a managed block in /etc/environment
+#      so non-interactive shells (ssh remote command, systemd services
+#      that EnvironmentFile=/etc/environment) see them too. Needs sudo;
+#      warns and skips if passwordless sudo isn't available.
 #
 # Optional env vars:
 #   AAB_CLAUDE_CODE_INFERENCE_PROVIDER
@@ -170,6 +175,9 @@ SIGNING_KEY="${SSH_DIR}/id_aab_signing"
 SIGNING_KEY_PUB="${SIGNING_KEY}.pub"
 SSH_MARKER_BEGIN="# >>> autonomous-agent-bootstrap >>>"
 SSH_MARKER_END="# <<< autonomous-agent-bootstrap <<<"
+ETC_ENV="/etc/environment"
+ETC_ENV_MARKER_BEGIN="# >>> autonomous-agent-bootstrap >>>"
+ETC_ENV_MARKER_END="# <<< autonomous-agent-bootstrap <<<"
 DEFAULT_CLAUDE_CODE_MODEL="claude-opus-4-7"
 DEFAULT_CLAUDE_CODE_HAIKU_MODEL="claude-haiku-4-5"
 DEFAULT_CLAUDE_CODE_SONNET_MODEL="claude-sonnet-4-6"
@@ -845,6 +853,105 @@ update_bashrc() {
 }
 
 # ---------------------------------------------------------------------------
+# 10. Mirror the credential / config env vars into /etc/environment.
+#
+# ~/.bashrc only loads for interactive bash shells; `ssh user@host cmd`
+# launches a non-interactive non-login shell that skips it entirely, and
+# systemd services start with whatever env their unit file declares — so
+# anything that needs ANTHROPIC_API_KEY, GH_TOKEN, ANTHROPIC_MODEL, etc.
+# from one of those contexts has nothing to read.
+#
+# /etc/environment is the cross-shell mechanism on Linux: PAM's pam_env
+# module loads it during session setup, including for ssh non-interactive
+# remote-command sessions, console logins, and `su -`. It's a flat
+# `KEY=VALUE` file (no shell expansion), exactly what's needed for the
+# resolved-at-bootstrap-time provider config we already build for
+# ~/.bashrc. systemd services that want the same values can reference
+# the same file with `EnvironmentFile=/etc/environment`.
+#
+# Re-runs replace the managed block in place. Writing /etc/environment
+# needs root; `update_etc_environment` follows the same warn-and-skip
+# pattern as `ensure_gh` when passwordless sudo isn't available — the
+# bootstrap finishes, ~/.bashrc still gets written, but non-interactive
+# shells won't see the env vars until sudo is wired up and the bootstrap
+# is re-run.
+#
+# The provider runtime-switch function in ~/.bashrc still only updates
+# bashrc (interactive only). To make a switch visible to non-interactive
+# shells, re-run bootstrap.bash with the new provider — that rewrites
+# both the bashrc block and the /etc/environment block.
+# ---------------------------------------------------------------------------
+update_etc_environment() {
+    if [ -n "$SUDO" ] && ! sudo -n true 2>/dev/null; then
+        warn "Updating $ETC_ENV needs sudo and passwordless sudo is not available; skipping. Non-interactive shells (ssh remote command, systemd services) will not see AAB's env vars."
+        return
+    fi
+
+    local provider="${AAB_CLAUDE_CODE_INFERENCE_PROVIDER:-anthropic}"
+    if [ "$provider" != "anthropic" ] && [ "$provider" != "third-party" ]; then
+        provider="anthropic"
+    fi
+    local model="${AAB_CLAUDE_CODE_MODEL:-$DEFAULT_CLAUDE_CODE_MODEL}"
+    local haiku_model="${AAB_CLAUDE_CODE_HAIKU_MODEL:-$DEFAULT_CLAUDE_CODE_HAIKU_MODEL}"
+    local sonnet_model="${AAB_CLAUDE_CODE_SONNET_MODEL:-$DEFAULT_CLAUDE_CODE_SONNET_MODEL}"
+    local opus_model="${AAB_CLAUDE_CODE_OPUS_MODEL:-$DEFAULT_CLAUDE_CODE_OPUS_MODEL}"
+    local third_party_prefix="${AAB_CLAUDE_CODE_MODEL_THIRD_PARTY_PREFIX:-}"
+
+    local tmp
+    tmp=$(mktemp)
+    {
+        # Carry over everything outside the previous managed block, if any.
+        if [ -f "$ETC_ENV" ]; then
+            awk -v begin="${ETC_ENV_MARKER_BEGIN}" -v end="${ETC_ENV_MARKER_END}" '
+                $0 == begin { skip=1; next }
+                $0 == end   { skip=0; next }
+                !skip { print }
+            ' "$ETC_ENV"
+        fi
+
+        # Drop any trailing blank lines from the carry-over so re-runs do not
+        # accumulate them; the explicit '\n' before BEGIN gives one separator.
+        printf '\n%s\n' "${ETC_ENV_MARKER_BEGIN}"
+        printf 'AAB_CLAUDE_CODE_INFERENCE_PROVIDER="%s"\n' "$provider"
+        printf 'CLAUDE_CODE_SANDBOXED="1"\n'
+        if [ -n "${GH_TOKEN:-}" ]; then
+            printf 'GH_TOKEN="%s"\n' "$GH_TOKEN"
+        fi
+        if [ "$provider" = "anthropic" ]; then
+            if [ -n "${ANTHROPIC_API_KEY:-}" ]; then
+                printf 'ANTHROPIC_API_KEY="%s"\n' "$ANTHROPIC_API_KEY"
+            fi
+            printf 'ANTHROPIC_MODEL="%s"\n' "$model"
+            printf 'ANTHROPIC_DEFAULT_HAIKU_MODEL="%s"\n'  "$haiku_model"
+            printf 'ANTHROPIC_DEFAULT_SONNET_MODEL="%s"\n' "$sonnet_model"
+            printf 'ANTHROPIC_DEFAULT_OPUS_MODEL="%s"\n'   "$opus_model"
+        else
+            if [ -n "${ANTHROPIC_BASE_URL:-}" ]; then
+                printf 'ANTHROPIC_BASE_URL="%s"\n' "$ANTHROPIC_BASE_URL"
+            fi
+            if [ -n "${ANTHROPIC_AUTH_TOKEN:-}" ]; then
+                printf 'ANTHROPIC_AUTH_TOKEN="%s"\n' "$ANTHROPIC_AUTH_TOKEN"
+            fi
+            printf 'ANTHROPIC_MODEL="%s"\n'                "${third_party_prefix}${model}"
+            printf 'ANTHROPIC_DEFAULT_HAIKU_MODEL="%s"\n'  "${third_party_prefix}${haiku_model}"
+            printf 'ANTHROPIC_DEFAULT_SONNET_MODEL="%s"\n' "${third_party_prefix}${sonnet_model}"
+            printf 'ANTHROPIC_DEFAULT_OPUS_MODEL="%s"\n'   "${third_party_prefix}${opus_model}"
+            printf 'CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS="1"\n'
+        fi
+        printf '%s\n' "${ETC_ENV_MARKER_END}"
+    } > "$tmp"
+
+    # `install` is atomic and sets mode in one syscall, so a partial write
+    # or a stale 0600 from mktemp does not show up in /etc/environment
+    # mid-rewrite. Owner stays root: when SUDO=sudo (the default for non-
+    # root callers) the install runs under sudo's elevated EUID and writes
+    # the file as root by default; -o/-g flags would just duplicate that.
+    $SUDO install -m 0644 "$tmp" "$ETC_ENV"
+    rm -f "$tmp"
+    log "Wrote autonomous-agent-bootstrap block to $ETC_ENV (provider=$provider)."
+}
+
+# ---------------------------------------------------------------------------
 # Optional config input (positional arg or stdin).
 #
 # main() picks one of three modes, in order:
@@ -926,6 +1033,7 @@ main() {
     install_signing_ssh_key
     install_claude_code_plugins
     update_bashrc
+    update_etc_environment
     log "Done. Open a new shell (or 'source ~/.bashrc') so the PATH / alias take effect."
 }
 
