@@ -79,6 +79,12 @@ for tier in HAIKU SONNET OPUS; do
 done
 pass "ANTHROPIC_DEFAULT_{HAIKU,SONNET,OPUS}_MODEL exported in both provider branches."
 
+# 6c. DEBUG_SDK=1 is exported (provider-agnostic) so Claude Code writes
+# its debug logs to ~/.claude/debug/<uuid>.txt for every invocation.
+grep -q 'export DEBUG_SDK=1' "$BASHRC" \
+    || fail "DEBUG_SDK=1 export missing from bashrc managed block."
+pass "DEBUG_SDK=1 exported (claude debug logging on)."
+
 # 7. The bashrc block sources cleanly.
 bash -n "$BASHRC" || fail "bashrc has syntax errors."
 pass "bashrc parses cleanly."

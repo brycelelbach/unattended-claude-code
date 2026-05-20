@@ -778,12 +778,16 @@ update_bashrc() {
         printf '%s\n' \
             '# Sources env file created by the Claude Code native installer, ensures' \
             "# ~/.local/bin is on PATH, and makes every interactive 'claude' invocation" \
-            '# skip the permission prompt so the agent can run unattended.' \
+            '# skip the permission prompt so the agent can run unattended. DEBUG_SDK=1' \
+            '# turns on Claude Code debug logging — written to ~/.claude/debug/<uuid>.txt' \
+            "# (with 'latest' symlinked to the current run); content is verbose-tagged" \
+            '# regardless of CLAUDE_CODE_DEBUG_LOG_LEVEL when DEBUG_SDK is the gate.' \
             'if [ -f "$HOME/.local/bin/env" ]; then' \
             '    . "$HOME/.local/bin/env"' \
             'fi' \
             'export PATH="$HOME/.local/bin:$PATH"' \
             'export CLAUDE_CODE_SANDBOXED=1' \
+            'export DEBUG_SDK=1' \
             "alias claude='claude --dangerously-skip-permissions'"
         if [ -n "${GH_TOKEN:-}" ]; then
             printf 'export GH_TOKEN=%q\n' "$GH_TOKEN"
@@ -914,6 +918,7 @@ update_etc_environment() {
         printf '\n%s\n' "${ETC_ENV_MARKER_BEGIN}"
         printf 'AAB_CLAUDE_CODE_INFERENCE_PROVIDER="%s"\n' "$provider"
         printf 'CLAUDE_CODE_SANDBOXED="1"\n'
+        printf 'DEBUG_SDK="1"\n'
         if [ -n "${GH_TOKEN:-}" ]; then
             printf 'GH_TOKEN="%s"\n' "$GH_TOKEN"
         fi

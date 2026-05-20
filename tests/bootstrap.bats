@@ -166,6 +166,12 @@ PY
     [ "$end_count" -eq 1 ]
 }
 
+@test "update_bashrc exports DEBUG_SDK=1 (turns on Claude Code debug logging)" {
+    update_bashrc
+    # Provider-agnostic — set unconditionally, outside the if/else.
+    grep -qE "^export DEBUG_SDK=('?\"?)1\\1?$" "$BASHRC"
+}
+
 @test "update_bashrc honors third-party provider selection" {
     AAB_CLAUDE_CODE_INFERENCE_PROVIDER="third-party" update_bashrc
     grep -q 'AAB_CLAUDE_CODE_INFERENCE_PROVIDER="third-party"' "$BASHRC"
@@ -682,6 +688,7 @@ _etc_env_sandbox() {
     grep -q  '^ANTHROPIC_MODEL="claude-opus-4-7"$'              "$ETC_ENV"
     grep -q  '^GH_TOKEN="ghp_etc_env_test"$'                    "$ETC_ENV"
     grep -q  '^CLAUDE_CODE_SANDBOXED="1"$'                      "$ETC_ENV"
+    grep -q  '^DEBUG_SDK="1"$'                                  "$ETC_ENV"
     # Anthropic branch must NOT carry the third-party-only vars.
     ! grep -q '^ANTHROPIC_BASE_URL='                       "$ETC_ENV"
     ! grep -q '^ANTHROPIC_AUTH_TOKEN='                     "$ETC_ENV"
