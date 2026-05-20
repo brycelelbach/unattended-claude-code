@@ -7,7 +7,7 @@ A single idempotent bash script that turns a fresh Linux host into a ready-to-us
 1. **[Claude Code](https://docs.anthropic.com/claude/docs/claude-code)** — installed via the official native installer, then configured for unattended use:
    - `bypassPermissions` default mode, `skipDangerousModePermissionPrompt`, sandboxed
    - Edit / Write / Read for `~/.claude/**` and `~/.claude.json` pre-approved in `permissions.allow` so the agent can update its own config, agents, skills, and memory files without a prompt even when bypass mode is toggled off mid-session
-   - Model selected via `AAB_CLAUDE_CODE_MODEL` (defaults to `claude-opus-4-7`), max effort
+   - First-party model selected via `AAB_CLAUDE_CODE_FIRST_PARTY_MODEL` (defaults to `claude-opus-4-7`), third-party model selected via `AAB_CLAUDE_CODE_THIRD_PARTY_MODEL`, max effort
    - Inference provider selectable at runtime — either Anthropic's first-party API or any Anthropic-compatible third-party gateway. Switch with `claude_code_switch_inference_provider anthropic|third-party`.
    - Onboarding wizard skipped (no theme / color-scheme prompt on first launch)
    - `ANTHROPIC_API_KEY` pre-approved if provided (no first-run approval prompt)
@@ -48,8 +48,11 @@ Use this if you have both a regular Anthropic API key *and* a third-party Anthro
 
 ```bash
 export AAB_CLAUDE_CODE_INFERENCE_PROVIDER="anthropic"
-export AAB_CLAUDE_CODE_MODEL="claude-opus-4-7"
-export AAB_CLAUDE_CODE_MODEL_THIRD_PARTY_PREFIX="aws/anthropic/bedrock-"
+export AAB_CLAUDE_CODE_FIRST_PARTY_MODEL="claude-opus-4-7"
+export AAB_CLAUDE_CODE_THIRD_PARTY_MODEL="aws/anthropic/bedrock-claude-opus-4-7"
+export AAB_CLAUDE_CODE_THIRD_PARTY_HAIKU_MODEL="aws/anthropic/claude-haiku-4-5-v1"
+export AAB_CLAUDE_CODE_THIRD_PARTY_SONNET_MODEL="aws/anthropic/bedrock-claude-sonnet-4-6"
+export AAB_CLAUDE_CODE_THIRD_PARTY_OPUS_MODEL="aws/anthropic/bedrock-claude-opus-4-7"
 export ANTHROPIC_API_KEY="..."
 export ANTHROPIC_BASE_URL="..."
 export ANTHROPIC_AUTH_TOKEN="..."
@@ -65,7 +68,7 @@ claude -p "Say hello from Claude Code"
 
 ```bash
 export AAB_CLAUDE_CODE_INFERENCE_PROVIDER="anthropic"
-export AAB_CLAUDE_CODE_MODEL="claude-opus-4-7"
+export AAB_CLAUDE_CODE_FIRST_PARTY_MODEL="claude-opus-4-7"
 export ANTHROPIC_API_KEY="..."
 export GH_TOKEN="..."
 export GIT_AUTHOR_NAME="Your Name"
@@ -79,8 +82,10 @@ claude -p "Say hello from Claude Code"
 
 ```bash
 export AAB_CLAUDE_CODE_INFERENCE_PROVIDER="third-party"
-export AAB_CLAUDE_CODE_MODEL="claude-opus-4-7"
-export AAB_CLAUDE_CODE_MODEL_THIRD_PARTY_PREFIX="aws/anthropic/bedrock-"
+export AAB_CLAUDE_CODE_THIRD_PARTY_MODEL="aws/anthropic/bedrock-claude-opus-4-7"
+export AAB_CLAUDE_CODE_THIRD_PARTY_HAIKU_MODEL="aws/anthropic/claude-haiku-4-5-v1"
+export AAB_CLAUDE_CODE_THIRD_PARTY_SONNET_MODEL="aws/anthropic/bedrock-claude-sonnet-4-6"
+export AAB_CLAUDE_CODE_THIRD_PARTY_OPUS_MODEL="aws/anthropic/bedrock-claude-opus-4-7"
 export ANTHROPIC_BASE_URL="..."
 export ANTHROPIC_AUTH_TOKEN="..."
 export GH_TOKEN="..."
@@ -102,7 +107,7 @@ Instead of long `export` chains, drop the same `KEY=VALUE` pairs in a file and p
 ```bash
 cat > /tmp/aab.conf <<'CONF'
 AAB_CLAUDE_CODE_INFERENCE_PROVIDER=anthropic
-AAB_CLAUDE_CODE_MODEL=claude-opus-4-7
+AAB_CLAUDE_CODE_FIRST_PARTY_MODEL=claude-opus-4-7
 ANTHROPIC_API_KEY=...
 GH_TOKEN=...
 GIT_AUTHOR_NAME=Your Name
@@ -114,7 +119,7 @@ bash bootstrap.bash /tmp/aab.conf
 
 # From a local checkout, by stdin (heredoc, redirect, or any non-TTY pipe):
 bash bootstrap.bash <<'CONF'
-AAB_CLAUDE_CODE_MODEL=claude-opus-4-7
+AAB_CLAUDE_CODE_FIRST_PARTY_MODEL=claude-opus-4-7
 ANTHROPIC_API_KEY=...
 GH_TOKEN=...
 CONF
@@ -128,7 +133,7 @@ curl -fsSL https://raw.githubusercontent.com/brycelelbach/autonomous-agent-boots
 # bash`) leaves stdin attached to the closed curl pipe, so heredocs
 # don't reach the script:
 bash <(curl -fsSL https://raw.githubusercontent.com/brycelelbach/autonomous-agent-bootstrap/main/bootstrap.bash) <<'CONF'
-AAB_CLAUDE_CODE_MODEL=claude-opus-4-7
+AAB_CLAUDE_CODE_FIRST_PARTY_MODEL=claude-opus-4-7
 ANTHROPIC_API_KEY=...
 GH_TOKEN=...
 CONF
@@ -150,7 +155,7 @@ The flip side: a malformed config file aborts the bootstrap rather than silently
 **Env beats file.** If a variable is already set in the shell when you invoke the bootstrap, that value wins over the file entry. This makes one-off overrides easy to test without editing the file:
 
 ```bash
-AAB_CLAUDE_CODE_MODEL=claude-haiku-4-5 bash bootstrap.bash /tmp/aab.conf
+AAB_CLAUDE_CODE_FIRST_PARTY_MODEL=claude-haiku-4-5 bash bootstrap.bash /tmp/aab.conf
 ```
 
 A corollary: there's no way to *unset* a variable from the file — if `FOO` is already exported in your shell, the file cannot force it to "unset" (only the env→file direction is valid). `FOO= bash bootstrap.bash aab.conf` lets you explicitly set `FOO` to empty, which most of the bootstrap's optional keys treat as "unset".
@@ -174,11 +179,18 @@ All optional. Anything unset is simply skipped.
 | Variable | Effect |
 | --- | --- |
 | `AAB_CLAUDE_CODE_INFERENCE_PROVIDER` | `anthropic` (default) or `third-party`. Selects which branch of the `if/else` in the managed `~/.bashrc` block is active at runtime. Can be flipped later via `claude_code_switch_inference_provider`. |
-| `AAB_CLAUDE_CODE_MODEL` | Unprefixed model name (e.g. `claude-opus-4-7`). Baked into `~/.claude/settings.json`'s `"model"` field and exported as `ANTHROPIC_MODEL` in the anthropic branch. Defaults to `claude-opus-4-7`. |
-| `AAB_CLAUDE_CODE_HAIKU_MODEL` | Unprefixed haiku-tier model name. Claude Code uses this tier for background tasks (web search, summarization). Exported as `ANTHROPIC_DEFAULT_HAIKU_MODEL` — raw in the anthropic branch, prefixed with `AAB_CLAUDE_CODE_MODEL_THIRD_PARTY_PREFIX` in the third-party branch. Defaults to `claude-haiku-4-5`. |
-| `AAB_CLAUDE_CODE_SONNET_MODEL` | Unprefixed sonnet-tier model name, used when `/model` selects the sonnet tier mid-session. Exported as `ANTHROPIC_DEFAULT_SONNET_MODEL` with the same prefix-or-not treatment. Defaults to `claude-sonnet-4-6`. |
-| `AAB_CLAUDE_CODE_OPUS_MODEL` | Unprefixed opus-tier model name, used when `/model` selects the opus tier mid-session. Exported as `ANTHROPIC_DEFAULT_OPUS_MODEL` with the same prefix-or-not treatment. Defaults to `claude-opus-4-7`. |
-| `AAB_CLAUDE_CODE_MODEL_THIRD_PARTY_PREFIX` | Prepended to every per-tier model name when exporting `ANTHROPIC_MODEL` / `ANTHROPIC_DEFAULT_*_MODEL` in the third-party branch (e.g. `aws/anthropic/bedrock-` + `claude-opus-4-7` → `aws/anthropic/bedrock-claude-opus-4-7`). |
+| `AAB_CLAUDE_CODE_FIRST_PARTY_MODEL` | First-party Anthropic model name (e.g. `claude-opus-4-7`). Baked into `~/.claude/settings.json`'s `"model"` field and exported as `ANTHROPIC_MODEL` in the anthropic branch. Defaults to `claude-opus-4-7`. |
+| `AAB_CLAUDE_CODE_FIRST_PARTY_HAIKU_MODEL` | First-party Anthropic haiku-tier model name. Claude Code uses this tier for background tasks (web search, summarization). Exported as `ANTHROPIC_DEFAULT_HAIKU_MODEL` in the anthropic branch. Defaults to `claude-haiku-4-5`. |
+| `AAB_CLAUDE_CODE_FIRST_PARTY_SONNET_MODEL` | First-party Anthropic sonnet-tier model name, used when `/model` selects the sonnet tier mid-session. Exported as `ANTHROPIC_DEFAULT_SONNET_MODEL` in the anthropic branch. Defaults to `claude-sonnet-4-6`. |
+| `AAB_CLAUDE_CODE_FIRST_PARTY_OPUS_MODEL` | First-party Anthropic opus-tier model name, used when `/model` selects the opus tier mid-session. Exported as `ANTHROPIC_DEFAULT_OPUS_MODEL` in the anthropic branch. Defaults to `claude-opus-4-7`. |
+| `AAB_CLAUDE_CODE_THIRD_PARTY_MODEL` | Fully-qualified third-party gateway model ID. Exported verbatim as `ANTHROPIC_MODEL` in the third-party branch. Defaults to `AAB_CLAUDE_CODE_MODEL` or `claude-opus-4-7` when unset. |
+| `AAB_CLAUDE_CODE_THIRD_PARTY_HAIKU_MODEL` | Fully-qualified third-party gateway haiku-tier model ID. Exported verbatim as `ANTHROPIC_DEFAULT_HAIKU_MODEL` in the third-party branch. Defaults to `AAB_CLAUDE_CODE_HAIKU_MODEL` or `claude-haiku-4-5`. |
+| `AAB_CLAUDE_CODE_THIRD_PARTY_SONNET_MODEL` | Fully-qualified third-party gateway sonnet-tier model ID. Exported verbatim as `ANTHROPIC_DEFAULT_SONNET_MODEL` in the third-party branch. Defaults to `AAB_CLAUDE_CODE_SONNET_MODEL` or `claude-sonnet-4-6`. |
+| `AAB_CLAUDE_CODE_THIRD_PARTY_OPUS_MODEL` | Fully-qualified third-party gateway opus-tier model ID. Exported verbatim as `ANTHROPIC_DEFAULT_OPUS_MODEL` in the third-party branch. Defaults to `AAB_CLAUDE_CODE_OPUS_MODEL` or `claude-opus-4-7`. |
+| `AAB_CLAUDE_CODE_MODEL` | Compatibility alias for both first-party and third-party model defaults. |
+| `AAB_CLAUDE_CODE_HAIKU_MODEL` | Compatibility alias for both first-party and third-party haiku-tier model defaults. |
+| `AAB_CLAUDE_CODE_SONNET_MODEL` | Compatibility alias for both first-party and third-party sonnet-tier model defaults. |
+| `AAB_CLAUDE_CODE_OPUS_MODEL` | Compatibility alias for both first-party and third-party opus-tier model defaults. |
 | `ANTHROPIC_API_KEY` | Last 20 characters written to `~/.claude.json` under `customApiKeyResponses.approved` so Claude Code doesn't prompt for approval. Also exported from the anthropic branch of the `~/.bashrc` managed block. |
 | `ANTHROPIC_BASE_URL` | Exported from the third-party branch. |
 | `ANTHROPIC_AUTH_TOKEN` | Exported from the third-party branch. The third-party branch also exports `CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS=1` so context-management beta headers aren't sent to gateways that reject them. |
