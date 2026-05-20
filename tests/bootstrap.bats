@@ -11,8 +11,15 @@ setup() {
     # Unset env vars the script looks at so each test controls its own.
     unset AAB_CLAUDE_CODE_MODEL AAB_CLAUDE_CODE_HAIKU_MODEL \
           AAB_CLAUDE_CODE_SONNET_MODEL AAB_CLAUDE_CODE_OPUS_MODEL \
+          AAB_CLAUDE_CODE_FIRST_PARTY_MODEL \
+          AAB_CLAUDE_CODE_FIRST_PARTY_HAIKU_MODEL \
+          AAB_CLAUDE_CODE_FIRST_PARTY_SONNET_MODEL \
+          AAB_CLAUDE_CODE_FIRST_PARTY_OPUS_MODEL \
+          AAB_CLAUDE_CODE_THIRD_PARTY_MODEL \
+          AAB_CLAUDE_CODE_THIRD_PARTY_HAIKU_MODEL \
+          AAB_CLAUDE_CODE_THIRD_PARTY_SONNET_MODEL \
+          AAB_CLAUDE_CODE_THIRD_PARTY_OPUS_MODEL \
           AAB_CLAUDE_CODE_INFERENCE_PROVIDER \
-          AAB_CLAUDE_CODE_MODEL_THIRD_PARTY_PREFIX \
           ANTHROPIC_API_KEY ANTHROPIC_BASE_URL ANTHROPIC_AUTH_TOKEN \
           GH_TOKEN GIT_AUTHOR_NAME GIT_AUTHOR_EMAIL \
           AAB_CLAUDE_CODE_PLUGINS_FILE AAB_CLAUDE_CODE_PLUGINS_URL \
@@ -70,6 +77,11 @@ teardown() {
 
 @test "write_settings honors AAB_CLAUDE_CODE_MODEL override" {
     AAB_CLAUDE_CODE_MODEL="claude-sonnet-4-6" write_settings
+    python3 -c "import json; d=json.load(open('$SETTINGS_FILE')); assert d['model']=='claude-sonnet-4-6', d['model']"
+}
+
+@test "write_settings honors first-party model override" {
+    AAB_CLAUDE_CODE_FIRST_PARTY_MODEL="claude-sonnet-4-6" write_settings
     python3 -c "import json; d=json.load(open('$SETTINGS_FILE')); assert d['model']=='claude-sonnet-4-6', d['model']"
 }
 
@@ -205,30 +217,54 @@ PY
     ! grep -q "claude-sonnet-4-6" "$BASHRC"
 }
 
-@test "update_bashrc applies third-party prefix to every per-tier model" {
-    AAB_CLAUDE_CODE_MODEL_THIRD_PARTY_PREFIX="aws/anthropic/bedrock-" update_bashrc
-    # Anthropic branch keeps bare names; third-party branch gets the prefix.
-    grep -q "ANTHROPIC_DEFAULT_HAIKU_MODEL=claude-haiku-4-5"                       "$BASHRC"
-    grep -q "ANTHROPIC_DEFAULT_HAIKU_MODEL=aws/anthropic/bedrock-claude-haiku-4-5" "$BASHRC"
-    grep -q "ANTHROPIC_DEFAULT_SONNET_MODEL=claude-sonnet-4-6"                       "$BASHRC"
+@test "update_bashrc uses explicit first-party and third-party model vars" {
+    AAB_CLAUDE_CODE_FIRST_PARTY_HAIKU_MODEL="claude-haiku-first" \
+        AAB_CLAUDE_CODE_FIRST_PARTY_SONNET_MODEL="claude-sonnet-first" \
+        AAB_CLAUDE_CODE_FIRST_PARTY_OPUS_MODEL="claude-opus-first" \
+        AAB_CLAUDE_CODE_THIRD_PARTY_HAIKU_MODEL="aws/anthropic/claude-haiku-4-5-v1" \
+        AAB_CLAUDE_CODE_THIRD_PARTY_SONNET_MODEL="aws/anthropic/bedrock-claude-sonnet-4-6" \
+        AAB_CLAUDE_CODE_THIRD_PARTY_OPUS_MODEL="aws/anthropic/bedrock-claude-opus-4-7" \
+        update_bashrc
+    grep -q "ANTHROPIC_DEFAULT_HAIKU_MODEL=claude-haiku-first"                         "$BASHRC"
+    grep -q "ANTHROPIC_DEFAULT_SONNET_MODEL=claude-sonnet-first"                       "$BASHRC"
+    grep -q "ANTHROPIC_DEFAULT_OPUS_MODEL=claude-opus-first"                           "$BASHRC"
+    grep -q "ANTHROPIC_DEFAULT_HAIKU_MODEL=aws/anthropic/claude-haiku-4-5-v1"          "$BASHRC"
     grep -q "ANTHROPIC_DEFAULT_SONNET_MODEL=aws/anthropic/bedrock-claude-sonnet-4-6" "$BASHRC"
-    grep -q "ANTHROPIC_DEFAULT_OPUS_MODEL=claude-opus-4-7"                       "$BASHRC"
-    grep -q "ANTHROPIC_DEFAULT_OPUS_MODEL=aws/anthropic/bedrock-claude-opus-4-7" "$BASHRC"
+    grep -q "ANTHROPIC_DEFAULT_OPUS_MODEL=aws/anthropic/bedrock-claude-opus-4-7"     "$BASHRC"
 }
 
-@test "update_bashrc third-party per-tier exports are reachable when provider flips" {
+@test "update_bashrc third-party explicit model vars resolve verbatim when provider flips" {
     AAB_CLAUDE_CODE_INFERENCE_PROVIDER="third-party" \
-        AAB_CLAUDE_CODE_MODEL_THIRD_PARTY_PREFIX="aws/anthropic/bedrock-" \
+        AAB_CLAUDE_CODE_THIRD_PARTY_HAIKU_MODEL="aws/anthropic/claude-haiku-4-5-v1" \
+        AAB_CLAUDE_CODE_THIRD_PARTY_SONNET_MODEL="aws/anthropic/bedrock-claude-sonnet-4-6" \
+        AAB_CLAUDE_CODE_THIRD_PARTY_OPUS_MODEL="aws/anthropic/bedrock-claude-opus-4-7" \
         update_bashrc
-    # Source the bashrc and confirm every tier resolves to the prefixed value.
     # shellcheck disable=SC1090
     ANTHROPIC_DEFAULT_HAIKU_MODEL="" \
         ANTHROPIC_DEFAULT_SONNET_MODEL="" \
         ANTHROPIC_DEFAULT_OPUS_MODEL="" \
         . "$BASHRC"
-    [ "$ANTHROPIC_DEFAULT_HAIKU_MODEL"  = "aws/anthropic/bedrock-claude-haiku-4-5" ]
+    [ "$ANTHROPIC_DEFAULT_HAIKU_MODEL"  = "aws/anthropic/claude-haiku-4-5-v1" ]
     [ "$ANTHROPIC_DEFAULT_SONNET_MODEL" = "aws/anthropic/bedrock-claude-sonnet-4-6" ]
     [ "$ANTHROPIC_DEFAULT_OPUS_MODEL"   = "aws/anthropic/bedrock-claude-opus-4-7" ]
+}
+
+@test "update_bashrc old per-tier model vars remain third-party fallbacks" {
+    AAB_CLAUDE_CODE_INFERENCE_PROVIDER="third-party" \
+        AAB_CLAUDE_CODE_HAIKU_MODEL="claude-haiku-compat" \
+        AAB_CLAUDE_CODE_SONNET_MODEL="claude-sonnet-compat" \
+        AAB_CLAUDE_CODE_OPUS_MODEL="claude-opus-compat" \
+        update_bashrc
+    # Source the bashrc and confirm every tier resolves to the compatibility
+    # fallback value.
+    # shellcheck disable=SC1090
+    ANTHROPIC_DEFAULT_HAIKU_MODEL="" \
+        ANTHROPIC_DEFAULT_SONNET_MODEL="" \
+        ANTHROPIC_DEFAULT_OPUS_MODEL="" \
+        . "$BASHRC"
+    [ "$ANTHROPIC_DEFAULT_HAIKU_MODEL"  = "claude-haiku-compat" ]
+    [ "$ANTHROPIC_DEFAULT_SONNET_MODEL" = "claude-sonnet-compat" ]
+    [ "$ANTHROPIC_DEFAULT_OPUS_MODEL"   = "claude-opus-compat" ]
 }
 
 @test "sourcing bootstrap.bash does NOT execute main" {
@@ -321,7 +357,7 @@ exit 22
 SH
     chmod +x "$FAKE_BIN/curl"
 
-    export PATH="$FAKE_BIN:$PATH"
+    export PATH="$FAKE_BIN:/usr/bin:/bin"
 }
 
 write_marketplace_fixture() {
@@ -695,11 +731,13 @@ _etc_env_sandbox() {
     ! grep -q '^CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS='   "$ETC_ENV"
 }
 
-@test "update_etc_environment writes third-party provider block with prefix-applied model names" {
+@test "update_etc_environment writes third-party provider block with explicit model names" {
     _etc_env_sandbox
     AAB_CLAUDE_CODE_INFERENCE_PROVIDER="third-party" \
-    AAB_CLAUDE_CODE_MODEL="claude-opus-4-7" \
-    AAB_CLAUDE_CODE_MODEL_THIRD_PARTY_PREFIX="aws/anthropic/bedrock-" \
+    AAB_CLAUDE_CODE_THIRD_PARTY_MODEL="aws/anthropic/bedrock-claude-opus-4-7" \
+    AAB_CLAUDE_CODE_THIRD_PARTY_HAIKU_MODEL="aws/anthropic/claude-haiku-4-5-v1" \
+    AAB_CLAUDE_CODE_THIRD_PARTY_SONNET_MODEL="aws/anthropic/bedrock-claude-sonnet-4-6" \
+    AAB_CLAUDE_CODE_THIRD_PARTY_OPUS_MODEL="aws/anthropic/bedrock-claude-opus-4-7" \
     ANTHROPIC_BASE_URL="https://gateway.example.com" \
     ANTHROPIC_AUTH_TOKEN="bearer-token-xyz" \
         update_etc_environment
@@ -708,12 +746,23 @@ _etc_env_sandbox() {
     grep -q '^ANTHROPIC_BASE_URL="https://gateway.example.com"$' "$ETC_ENV"
     grep -q '^ANTHROPIC_AUTH_TOKEN="bearer-token-xyz"$'          "$ETC_ENV"
     grep -q '^ANTHROPIC_MODEL="aws/anthropic/bedrock-claude-opus-4-7"$' "$ETC_ENV"
-    grep -q '^ANTHROPIC_DEFAULT_HAIKU_MODEL="aws/anthropic/bedrock-claude-haiku-4-5"$'   "$ETC_ENV"
+    grep -q '^ANTHROPIC_DEFAULT_HAIKU_MODEL="aws/anthropic/claude-haiku-4-5-v1"$'        "$ETC_ENV"
     grep -q '^ANTHROPIC_DEFAULT_SONNET_MODEL="aws/anthropic/bedrock-claude-sonnet-4-6"$' "$ETC_ENV"
     grep -q '^ANTHROPIC_DEFAULT_OPUS_MODEL="aws/anthropic/bedrock-claude-opus-4-7"$'     "$ETC_ENV"
     grep -q '^CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS="1"$'       "$ETC_ENV"
     # Third-party branch must NOT carry the first-party-only API key.
     ! grep -q '^ANTHROPIC_API_KEY=' "$ETC_ENV"
+}
+
+@test "update_etc_environment keeps first-party and third-party model vars separate" {
+    _etc_env_sandbox
+    AAB_CLAUDE_CODE_INFERENCE_PROVIDER="anthropic" \
+    AAB_CLAUDE_CODE_FIRST_PARTY_HAIKU_MODEL="claude-haiku-first" \
+    AAB_CLAUDE_CODE_THIRD_PARTY_HAIKU_MODEL="aws/anthropic/claude-haiku-4-5-v1" \
+        update_etc_environment
+
+    grep -q '^ANTHROPIC_DEFAULT_HAIKU_MODEL="claude-haiku-first"$' "$ETC_ENV"
+    ! grep -q '^ANTHROPIC_DEFAULT_HAIKU_MODEL="aws/anthropic/claude-haiku-4-5-v1"$' "$ETC_ENV"
 }
 
 @test "update_etc_environment is idempotent (single managed block after two runs)" {

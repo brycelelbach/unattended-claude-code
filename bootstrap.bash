@@ -51,38 +51,59 @@
 #                       ~/.bashrc is active at runtime. Can be flipped later
 #                       via the `claude_code_switch_inference_provider`
 #                       function also written to ~/.bashrc.
+#   AAB_CLAUDE_CODE_FIRST_PARTY_MODEL
+#                       First-party Anthropic model name (e.g. 'claude-opus-
+#                       4-7'). Baked into ~/.claude/settings.json's "model"
+#                       field and exported as ANTHROPIC_MODEL in the
+#                       anthropic branch. Defaults to claude-opus-4-7.
+#   AAB_CLAUDE_CODE_THIRD_PARTY_MODEL
+#                       Fully-qualified third-party gateway model ID. Exported
+#                       as ANTHROPIC_MODEL in the third-party branch. Defaults
+#                       to AAB_CLAUDE_CODE_MODEL or claude-opus-4-7 when unset.
 #   AAB_CLAUDE_CODE_MODEL
-#                       Unprefixed model name (e.g. 'claude-opus-4-7'). Baked
-#                       into ~/.claude/settings.json's "model" field and
-#                       exported as ANTHROPIC_MODEL in the anthropic branch.
-#                       Defaults to claude-opus-4-7.
-#   AAB_CLAUDE_CODE_MODEL_THIRD_PARTY_PREFIX
-#                       Namespace prefix a third-party gateway uses in front
-#                       of Anthropic model names. Prepended to every
-#                       per-tier model name when building the third-party
-#                       branch's ANTHROPIC_MODEL / ANTHROPIC_DEFAULT_*_MODEL
-#                       exports (e.g. 'aws/anthropic/bedrock-' +
-#                       'claude-opus-4-7' = 'aws/anthropic/bedrock-claude-
-#                       opus-4-7').
+#                       Compatibility alias for both first-party and
+#                       third-party model defaults.
 #   AAB_CLAUDE_CODE_HAIKU_MODEL
-#                       Unprefixed haiku-tier model name. Claude Code uses
-#                       this tier for background tasks (web search,
+#                       Compatibility alias for both first-party and
+#                       third-party haiku-tier model defaults.
+#   AAB_CLAUDE_CODE_FIRST_PARTY_HAIKU_MODEL
+#                       First-party Anthropic haiku-tier model name. Claude
+#                       Code uses this tier for background tasks (web search,
 #                       summarization, file naming). Exported as
-#                       ANTHROPIC_DEFAULT_HAIKU_MODEL — raw in the anthropic
-#                       branch, prefixed with
-#                       AAB_CLAUDE_CODE_MODEL_THIRD_PARTY_PREFIX in the
-#                       third-party branch. Defaults to claude-haiku-4-5.
+#                       ANTHROPIC_DEFAULT_HAIKU_MODEL in the anthropic branch.
+#                       Defaults to claude-haiku-4-5.
+#   AAB_CLAUDE_CODE_THIRD_PARTY_HAIKU_MODEL
+#                       Fully-qualified third-party gateway haiku-tier model
+#                       ID. Exported verbatim as ANTHROPIC_DEFAULT_HAIKU_MODEL
+#                       in the third-party branch. Defaults to
+#                       AAB_CLAUDE_CODE_HAIKU_MODEL or claude-haiku-4-5.
 #   AAB_CLAUDE_CODE_SONNET_MODEL
-#                       Unprefixed sonnet-tier model name, used by Claude
-#                       Code when /model selects the sonnet tier mid-session.
-#                       Exported as ANTHROPIC_DEFAULT_SONNET_MODEL with the
-#                       same prefix-or-not treatment. Defaults to
+#                       Compatibility alias for both first-party and
+#                       third-party sonnet-tier model defaults.
+#   AAB_CLAUDE_CODE_FIRST_PARTY_SONNET_MODEL
+#                       First-party Anthropic sonnet-tier model name, used
+#                       when /model selects the sonnet tier mid-session.
+#                       Exported as ANTHROPIC_DEFAULT_SONNET_MODEL in the
+#                       anthropic branch. Defaults to claude-sonnet-4-6.
+#   AAB_CLAUDE_CODE_THIRD_PARTY_SONNET_MODEL
+#                       Fully-qualified third-party gateway sonnet-tier model
+#                       ID. Exported verbatim as
+#                       ANTHROPIC_DEFAULT_SONNET_MODEL in the third-party
+#                       branch. Defaults to AAB_CLAUDE_CODE_SONNET_MODEL or
 #                       claude-sonnet-4-6.
 #   AAB_CLAUDE_CODE_OPUS_MODEL
-#                       Unprefixed opus-tier model name, used when /model
-#                       selects the opus tier mid-session. Exported as
-#                       ANTHROPIC_DEFAULT_OPUS_MODEL with the same
-#                       prefix-or-not treatment. Defaults to claude-opus-4-7.
+#                       Compatibility alias for both first-party and
+#                       third-party opus-tier model defaults.
+#   AAB_CLAUDE_CODE_FIRST_PARTY_OPUS_MODEL
+#                       First-party Anthropic opus-tier model name, used when
+#                       /model selects the opus tier mid-session. Exported as
+#                       ANTHROPIC_DEFAULT_OPUS_MODEL in the anthropic branch.
+#                       Defaults to claude-opus-4-7.
+#   AAB_CLAUDE_CODE_THIRD_PARTY_OPUS_MODEL
+#                       Fully-qualified third-party gateway opus-tier model
+#                       ID. Exported verbatim as ANTHROPIC_DEFAULT_OPUS_MODEL
+#                       in the third-party branch. Defaults to
+#                       AAB_CLAUDE_CODE_OPUS_MODEL or claude-opus-4-7.
 #   ANTHROPIC_API_KEY   Anthropic first-party API key. Last 20 characters are
 #                       pre-approved in ~/.claude.json's
 #                       customApiKeyResponses.approved so Claude Code won't
@@ -284,7 +305,7 @@ write_settings() {
         cp "${SETTINGS_FILE}" "${backup}"
         log "Backed up existing settings.json -> ${backup}."
     fi
-    local model="${AAB_CLAUDE_CODE_MODEL:-$DEFAULT_CLAUDE_CODE_MODEL}"
+    local model="${AAB_CLAUDE_CODE_FIRST_PARTY_MODEL:-${AAB_CLAUDE_CODE_MODEL:-$DEFAULT_CLAUDE_CODE_MODEL}}"
     # Belt-and-suspenders: bypassPermissions skips prompts for writes
     # under .claude/ already, but the explicit allow list also keeps
     # config / memory / agent / skill edits unprompted in 'default' or
@@ -763,15 +784,14 @@ update_bashrc() {
         warn "AAB_CLAUDE_CODE_INFERENCE_PROVIDER='${provider}' is not 'anthropic' or 'third-party'; defaulting to 'anthropic'."
         provider="anthropic"
     fi
-    local model="${AAB_CLAUDE_CODE_MODEL:-$DEFAULT_CLAUDE_CODE_MODEL}"
-    local haiku_model="${AAB_CLAUDE_CODE_HAIKU_MODEL:-$DEFAULT_CLAUDE_CODE_HAIKU_MODEL}"
-    local sonnet_model="${AAB_CLAUDE_CODE_SONNET_MODEL:-$DEFAULT_CLAUDE_CODE_SONNET_MODEL}"
-    local opus_model="${AAB_CLAUDE_CODE_OPUS_MODEL:-$DEFAULT_CLAUDE_CODE_OPUS_MODEL}"
-    local third_party_prefix="${AAB_CLAUDE_CODE_MODEL_THIRD_PARTY_PREFIX:-}"
-    local third_party_model="${third_party_prefix}${model}"
-    local third_party_haiku_model="${third_party_prefix}${haiku_model}"
-    local third_party_sonnet_model="${third_party_prefix}${sonnet_model}"
-    local third_party_opus_model="${third_party_prefix}${opus_model}"
+    local model="${AAB_CLAUDE_CODE_FIRST_PARTY_MODEL:-${AAB_CLAUDE_CODE_MODEL:-$DEFAULT_CLAUDE_CODE_MODEL}}"
+    local haiku_model="${AAB_CLAUDE_CODE_FIRST_PARTY_HAIKU_MODEL:-${AAB_CLAUDE_CODE_HAIKU_MODEL:-$DEFAULT_CLAUDE_CODE_HAIKU_MODEL}}"
+    local sonnet_model="${AAB_CLAUDE_CODE_FIRST_PARTY_SONNET_MODEL:-${AAB_CLAUDE_CODE_SONNET_MODEL:-$DEFAULT_CLAUDE_CODE_SONNET_MODEL}}"
+    local opus_model="${AAB_CLAUDE_CODE_FIRST_PARTY_OPUS_MODEL:-${AAB_CLAUDE_CODE_OPUS_MODEL:-$DEFAULT_CLAUDE_CODE_OPUS_MODEL}}"
+    local third_party_model="${AAB_CLAUDE_CODE_THIRD_PARTY_MODEL:-${AAB_CLAUDE_CODE_MODEL:-$DEFAULT_CLAUDE_CODE_MODEL}}"
+    local third_party_haiku_model="${AAB_CLAUDE_CODE_THIRD_PARTY_HAIKU_MODEL:-${AAB_CLAUDE_CODE_HAIKU_MODEL:-$DEFAULT_CLAUDE_CODE_HAIKU_MODEL}}"
+    local third_party_sonnet_model="${AAB_CLAUDE_CODE_THIRD_PARTY_SONNET_MODEL:-${AAB_CLAUDE_CODE_SONNET_MODEL:-$DEFAULT_CLAUDE_CODE_SONNET_MODEL}}"
+    local third_party_opus_model="${AAB_CLAUDE_CODE_THIRD_PARTY_OPUS_MODEL:-${AAB_CLAUDE_CODE_OPUS_MODEL:-$DEFAULT_CLAUDE_CODE_OPUS_MODEL}}"
 
     {
         printf '\n%s\n' "${BASHRC_MARKER_BEGIN}"
@@ -895,11 +915,14 @@ update_etc_environment() {
     if [ "$provider" != "anthropic" ] && [ "$provider" != "third-party" ]; then
         provider="anthropic"
     fi
-    local model="${AAB_CLAUDE_CODE_MODEL:-$DEFAULT_CLAUDE_CODE_MODEL}"
-    local haiku_model="${AAB_CLAUDE_CODE_HAIKU_MODEL:-$DEFAULT_CLAUDE_CODE_HAIKU_MODEL}"
-    local sonnet_model="${AAB_CLAUDE_CODE_SONNET_MODEL:-$DEFAULT_CLAUDE_CODE_SONNET_MODEL}"
-    local opus_model="${AAB_CLAUDE_CODE_OPUS_MODEL:-$DEFAULT_CLAUDE_CODE_OPUS_MODEL}"
-    local third_party_prefix="${AAB_CLAUDE_CODE_MODEL_THIRD_PARTY_PREFIX:-}"
+    local model="${AAB_CLAUDE_CODE_FIRST_PARTY_MODEL:-${AAB_CLAUDE_CODE_MODEL:-$DEFAULT_CLAUDE_CODE_MODEL}}"
+    local haiku_model="${AAB_CLAUDE_CODE_FIRST_PARTY_HAIKU_MODEL:-${AAB_CLAUDE_CODE_HAIKU_MODEL:-$DEFAULT_CLAUDE_CODE_HAIKU_MODEL}}"
+    local sonnet_model="${AAB_CLAUDE_CODE_FIRST_PARTY_SONNET_MODEL:-${AAB_CLAUDE_CODE_SONNET_MODEL:-$DEFAULT_CLAUDE_CODE_SONNET_MODEL}}"
+    local opus_model="${AAB_CLAUDE_CODE_FIRST_PARTY_OPUS_MODEL:-${AAB_CLAUDE_CODE_OPUS_MODEL:-$DEFAULT_CLAUDE_CODE_OPUS_MODEL}}"
+    local third_party_model="${AAB_CLAUDE_CODE_THIRD_PARTY_MODEL:-${AAB_CLAUDE_CODE_MODEL:-$DEFAULT_CLAUDE_CODE_MODEL}}"
+    local third_party_haiku_model="${AAB_CLAUDE_CODE_THIRD_PARTY_HAIKU_MODEL:-${AAB_CLAUDE_CODE_HAIKU_MODEL:-$DEFAULT_CLAUDE_CODE_HAIKU_MODEL}}"
+    local third_party_sonnet_model="${AAB_CLAUDE_CODE_THIRD_PARTY_SONNET_MODEL:-${AAB_CLAUDE_CODE_SONNET_MODEL:-$DEFAULT_CLAUDE_CODE_SONNET_MODEL}}"
+    local third_party_opus_model="${AAB_CLAUDE_CODE_THIRD_PARTY_OPUS_MODEL:-${AAB_CLAUDE_CODE_OPUS_MODEL:-$DEFAULT_CLAUDE_CODE_OPUS_MODEL}}"
 
     local tmp
     tmp=$(mktemp)
@@ -937,10 +960,10 @@ update_etc_environment() {
             if [ -n "${ANTHROPIC_AUTH_TOKEN:-}" ]; then
                 printf 'ANTHROPIC_AUTH_TOKEN="%s"\n' "$ANTHROPIC_AUTH_TOKEN"
             fi
-            printf 'ANTHROPIC_MODEL="%s"\n'                "${third_party_prefix}${model}"
-            printf 'ANTHROPIC_DEFAULT_HAIKU_MODEL="%s"\n'  "${third_party_prefix}${haiku_model}"
-            printf 'ANTHROPIC_DEFAULT_SONNET_MODEL="%s"\n' "${third_party_prefix}${sonnet_model}"
-            printf 'ANTHROPIC_DEFAULT_OPUS_MODEL="%s"\n'   "${third_party_prefix}${opus_model}"
+            printf 'ANTHROPIC_MODEL="%s"\n'                "$third_party_model"
+            printf 'ANTHROPIC_DEFAULT_HAIKU_MODEL="%s"\n'  "$third_party_haiku_model"
+            printf 'ANTHROPIC_DEFAULT_SONNET_MODEL="%s"\n' "$third_party_sonnet_model"
+            printf 'ANTHROPIC_DEFAULT_OPUS_MODEL="%s"\n'   "$third_party_opus_model"
             printf 'CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS="1"\n'
         fi
         printf '%s\n' "${ETC_ENV_MARKER_END}"
