@@ -183,14 +183,10 @@ All optional. Anything unset is simply skipped.
 | `AAB_CLAUDE_CODE_FIRST_PARTY_HAIKU_MODEL` | First-party Anthropic haiku-tier model name. Claude Code uses this tier for background tasks (web search, summarization). Exported as `ANTHROPIC_DEFAULT_HAIKU_MODEL` in the anthropic branch. Defaults to `claude-haiku-4-5`. |
 | `AAB_CLAUDE_CODE_FIRST_PARTY_SONNET_MODEL` | First-party Anthropic sonnet-tier model name, used when `/model` selects the sonnet tier mid-session. Exported as `ANTHROPIC_DEFAULT_SONNET_MODEL` in the anthropic branch. Defaults to `claude-sonnet-4-6`. |
 | `AAB_CLAUDE_CODE_FIRST_PARTY_OPUS_MODEL` | First-party Anthropic opus-tier model name, used when `/model` selects the opus tier mid-session. Exported as `ANTHROPIC_DEFAULT_OPUS_MODEL` in the anthropic branch. Defaults to `claude-opus-4-7`. |
-| `AAB_CLAUDE_CODE_THIRD_PARTY_MODEL` | Fully-qualified third-party gateway model ID. Exported verbatim as `ANTHROPIC_MODEL` in the third-party branch. Defaults to `AAB_CLAUDE_CODE_MODEL` or `claude-opus-4-7` when unset. |
-| `AAB_CLAUDE_CODE_THIRD_PARTY_HAIKU_MODEL` | Fully-qualified third-party gateway haiku-tier model ID. Exported verbatim as `ANTHROPIC_DEFAULT_HAIKU_MODEL` in the third-party branch. Defaults to `AAB_CLAUDE_CODE_HAIKU_MODEL` or `claude-haiku-4-5`. |
-| `AAB_CLAUDE_CODE_THIRD_PARTY_SONNET_MODEL` | Fully-qualified third-party gateway sonnet-tier model ID. Exported verbatim as `ANTHROPIC_DEFAULT_SONNET_MODEL` in the third-party branch. Defaults to `AAB_CLAUDE_CODE_SONNET_MODEL` or `claude-sonnet-4-6`. |
-| `AAB_CLAUDE_CODE_THIRD_PARTY_OPUS_MODEL` | Fully-qualified third-party gateway opus-tier model ID. Exported verbatim as `ANTHROPIC_DEFAULT_OPUS_MODEL` in the third-party branch. Defaults to `AAB_CLAUDE_CODE_OPUS_MODEL` or `claude-opus-4-7`. |
-| `AAB_CLAUDE_CODE_MODEL` | Compatibility alias for both first-party and third-party model defaults. |
-| `AAB_CLAUDE_CODE_HAIKU_MODEL` | Compatibility alias for both first-party and third-party haiku-tier model defaults. |
-| `AAB_CLAUDE_CODE_SONNET_MODEL` | Compatibility alias for both first-party and third-party sonnet-tier model defaults. |
-| `AAB_CLAUDE_CODE_OPUS_MODEL` | Compatibility alias for both first-party and third-party opus-tier model defaults. |
+| `AAB_CLAUDE_CODE_THIRD_PARTY_MODEL` | Fully-qualified third-party gateway model ID. Exported verbatim as `ANTHROPIC_MODEL` in the third-party branch. Defaults to `claude-opus-4-7` when unset. |
+| `AAB_CLAUDE_CODE_THIRD_PARTY_HAIKU_MODEL` | Fully-qualified third-party gateway haiku-tier model ID. Exported verbatim as `ANTHROPIC_DEFAULT_HAIKU_MODEL` in the third-party branch. Defaults to `claude-haiku-4-5`. |
+| `AAB_CLAUDE_CODE_THIRD_PARTY_SONNET_MODEL` | Fully-qualified third-party gateway sonnet-tier model ID. Exported verbatim as `ANTHROPIC_DEFAULT_SONNET_MODEL` in the third-party branch. Defaults to `claude-sonnet-4-6`. |
+| `AAB_CLAUDE_CODE_THIRD_PARTY_OPUS_MODEL` | Fully-qualified third-party gateway opus-tier model ID. Exported verbatim as `ANTHROPIC_DEFAULT_OPUS_MODEL` in the third-party branch. Defaults to `claude-opus-4-7`. |
 | `ANTHROPIC_API_KEY` | Last 20 characters written to `~/.claude.json` under `customApiKeyResponses.approved` so Claude Code doesn't prompt for approval. Also exported from the anthropic branch of the `~/.bashrc` managed block. |
 | `ANTHROPIC_BASE_URL` | Exported from the third-party branch. |
 | `ANTHROPIC_AUTH_TOKEN` | Exported from the third-party branch. The third-party branch also exports `CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS=1` so context-management beta headers aren't sent to gateways that reject them. |
