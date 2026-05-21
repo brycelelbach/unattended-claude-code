@@ -17,6 +17,7 @@ setup() {
           AAB_CLAUDE_CODE_THIRD_PARTY_HAIKU_MODEL \
           AAB_CLAUDE_CODE_THIRD_PARTY_SONNET_MODEL \
           AAB_CLAUDE_CODE_THIRD_PARTY_OPUS_MODEL \
+          AAB_CLAUDE_CODE_EFFORT \
           AAB_CLAUDE_CODE_INFERENCE_PROVIDER \
           AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY \
           AAB_CLAUDE_CODE_THIRD_PARTY_BASE_URL \
@@ -91,6 +92,16 @@ teardown() {
     python3 -c "import json; d=json.load(open('$SETTINGS_FILE')); assert d['model']=='claude-sonnet-4-6', d['model']"
 }
 
+@test "write_settings honors AAB_CLAUDE_CODE_EFFORT override" {
+    AAB_CLAUDE_CODE_EFFORT="high" write_settings
+    python3 - <<PY
+import json
+d = json.load(open("$SETTINGS_FILE"))
+assert d["effortLevel"] == "high", d
+assert d["env"]["CLAUDE_CODE_EFFORT_LEVEL"] == "high", d
+PY
+}
+
 @test "write_settings sets bypassPermissions and sandbox env" {
     write_settings
     python3 - <<PY
@@ -99,7 +110,8 @@ d = json.load(open("$SETTINGS_FILE"))
 assert d["permissions"]["defaultMode"] == "bypassPermissions"
 assert d["skipDangerousModePermissionPrompt"] is True
 assert d["env"]["CLAUDE_CODE_SANDBOXED"] == "1"
-assert d["effortLevel"] == "max"
+assert d["effortLevel"] == "$DEFAULT_CLAUDE_CODE_EFFORT"
+assert d["env"]["CLAUDE_CODE_EFFORT_LEVEL"] == "$DEFAULT_CLAUDE_CODE_EFFORT"
 PY
 }
 
@@ -188,6 +200,11 @@ PY
     update_bashrc
     # Provider-agnostic — set unconditionally, outside the if/else.
     grep -qE "^export DEBUG_SDK=('?\"?)1\\1?$" "$BASHRC"
+}
+
+@test "update_bashrc exports CLAUDE_CODE_EFFORT_LEVEL from AAB_CLAUDE_CODE_EFFORT" {
+    AAB_CLAUDE_CODE_EFFORT="high" update_bashrc
+    grep -qE "^export CLAUDE_CODE_EFFORT_LEVEL=('?\"?)high\\1?$" "$BASHRC"
 }
 
 @test "update_bashrc honors third-party provider selection" {
@@ -728,6 +745,7 @@ _etc_env_sandbox() {
     grep -q  '^AAB_GH_TOKEN="ghp_etc_env_test"$'                "$ETC_ENV"
     grep -q  '^GH_TOKEN="ghp_etc_env_test"$'                    "$ETC_ENV"
     grep -q  '^CLAUDE_CODE_SANDBOXED="1"$'                      "$ETC_ENV"
+    grep -q  '^CLAUDE_CODE_EFFORT_LEVEL="max"$'                 "$ETC_ENV"
     grep -q  '^DEBUG_SDK="1"$'                                  "$ETC_ENV"
     # Anthropic branch must NOT carry the third-party-only vars.
     ! grep -q '^ANTHROPIC_BASE_URL='                       "$ETC_ENV"
@@ -755,6 +773,7 @@ _etc_env_sandbox() {
     grep -q '^ANTHROPIC_DEFAULT_HAIKU_MODEL="aws/anthropic/claude-haiku-4-5-v1"$'        "$ETC_ENV"
     grep -q '^ANTHROPIC_DEFAULT_SONNET_MODEL="aws/anthropic/bedrock-claude-sonnet-4-6"$' "$ETC_ENV"
     grep -q '^ANTHROPIC_DEFAULT_OPUS_MODEL="aws/anthropic/bedrock-claude-opus-4-7"$'     "$ETC_ENV"
+    grep -q '^CLAUDE_CODE_EFFORT_LEVEL="max"$'                    "$ETC_ENV"
     grep -q '^CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS="1"$'       "$ETC_ENV"
     # Third-party branch must NOT carry the first-party-only API key.
     ! grep -q '^ANTHROPIC_API_KEY=' "$ETC_ENV"
@@ -769,6 +788,12 @@ _etc_env_sandbox() {
 
     grep -q '^ANTHROPIC_DEFAULT_HAIKU_MODEL="claude-haiku-first"$' "$ETC_ENV"
     ! grep -q '^ANTHROPIC_DEFAULT_HAIKU_MODEL="aws/anthropic/claude-haiku-4-5-v1"$' "$ETC_ENV"
+}
+
+@test "update_etc_environment writes CLAUDE_CODE_EFFORT_LEVEL from AAB_CLAUDE_CODE_EFFORT" {
+    _etc_env_sandbox
+    AAB_CLAUDE_CODE_EFFORT="high" update_etc_environment
+    grep -q '^CLAUDE_CODE_EFFORT_LEVEL="high"$' "$ETC_ENV"
 }
 
 @test "update_etc_environment is idempotent (single managed block after two runs)" {
