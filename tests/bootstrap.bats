@@ -21,10 +21,11 @@ setup() {
           AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY \
           AAB_CLAUDE_CODE_THIRD_PARTY_BASE_URL \
           AAB_CLAUDE_CODE_THIRD_PARTY_AUTH_TOKEN \
+          AAB_GH_TOKEN AAB_GIT_AUTHOR_NAME AAB_GIT_AUTHOR_EMAIL \
+          AAB_GH_AUTH_SSH_PRIVATE_KEY_B64 AAB_GIT_SIGNING_PRIVATE_KEY_B64 \
           ANTHROPIC_API_KEY ANTHROPIC_BASE_URL ANTHROPIC_AUTH_TOKEN \
-          GH_TOKEN GIT_AUTHOR_NAME GIT_AUTHOR_EMAIL \
-          AAB_CLAUDE_CODE_PLUGINS_FILE AAB_CLAUDE_CODE_PLUGINS_URL \
-          GH_AUTH_SSH_PRIVATE_KEY_B64 GIT_SIGNING_PRIVATE_KEY_B64
+          GH_TOKEN \
+          AAB_CLAUDE_CODE_PLUGINS_FILE AAB_CLAUDE_CODE_PLUGINS_URL
     # shellcheck disable=SC1091
     source "$REPO_ROOT/bootstrap.bash"
 }
@@ -52,6 +53,15 @@ teardown() {
     else
         [ "$result" = "sudo" ]
     fi
+}
+
+@test "configure_git uses AAB-prefixed git identity vars" {
+    command -v git >/dev/null || skip "precondition: git must exist"
+    AAB_GIT_AUTHOR_NAME="Alice Example" \
+        AAB_GIT_AUTHOR_EMAIL="alice@example.com" \
+        configure_git
+    [ "$(git config --global --get user.name)" = "Alice Example" ]
+    [ "$(git config --global --get user.email)" = "alice@example.com" ]
 }
 
 @test "skip_brev_onboarding writes valid JSON to BREV_ONBOARDING" {
@@ -204,6 +214,12 @@ PY
     grep -q 'export ANTHROPIC_AUTH_TOKEN=bearer-token-xyz' "$BASHRC"
     grep -q 'unset AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY' "$BASHRC"
     grep -q 'unset ANTHROPIC_API_KEY' "$BASHRC"
+}
+
+@test "update_bashrc exports GitHub token under AAB and gh runtime names" {
+    AAB_GH_TOKEN="ghp_bashrc_test" update_bashrc
+    grep -q 'export AAB_GH_TOKEN=ghp_bashrc_test' "$BASHRC"
+    grep -q 'export GH_TOKEN=ghp_bashrc_test' "$BASHRC"
 }
 
 @test "update_bashrc exports default ANTHROPIC_DEFAULT_*_MODEL in both branches" {
@@ -515,14 +531,14 @@ gen_test_ssh_key_b64() {
     base64 -w0 < "$path"
 }
 
-@test "install_auth_ssh_key is a no-op when GH_AUTH_SSH_PRIVATE_KEY_B64 is unset" {
+@test "install_auth_ssh_key is a no-op when AAB_GH_AUTH_SSH_PRIVATE_KEY_B64 is unset" {
     run install_auth_ssh_key
     [ "$status" -eq 0 ]
     [ ! -e "$AUTH_KEY" ]
     [ ! -e "$SSH_CONFIG" ]
 }
 
-@test "install_signing_ssh_key is a no-op when GIT_SIGNING_PRIVATE_KEY_B64 is unset" {
+@test "install_signing_ssh_key is a no-op when AAB_GIT_SIGNING_PRIVATE_KEY_B64 is unset" {
     run install_signing_ssh_key
     [ "$status" -eq 0 ]
     [ ! -e "$SIGNING_KEY" ]
@@ -533,8 +549,8 @@ gen_test_ssh_key_b64() {
 }
 
 @test "install_auth_ssh_key writes id_aab_auth (0600) and id_aab_auth.pub (0644)" {
-    GH_AUTH_SSH_PRIVATE_KEY_B64=$(gen_test_ssh_key_b64)
-    export GH_AUTH_SSH_PRIVATE_KEY_B64
+    AAB_GH_AUTH_SSH_PRIVATE_KEY_B64=$(gen_test_ssh_key_b64)
+    export AAB_GH_AUTH_SSH_PRIVATE_KEY_B64
     install_auth_ssh_key
 
     [ -f "$AUTH_KEY" ]
@@ -546,8 +562,8 @@ gen_test_ssh_key_b64() {
 }
 
 @test "install_signing_ssh_key writes id_aab_signing (0600) and id_aab_signing.pub (0644)" {
-    GIT_SIGNING_PRIVATE_KEY_B64=$(gen_test_ssh_key_b64)
-    export GIT_SIGNING_PRIVATE_KEY_B64
+    AAB_GIT_SIGNING_PRIVATE_KEY_B64=$(gen_test_ssh_key_b64)
+    export AAB_GIT_SIGNING_PRIVATE_KEY_B64
     install_signing_ssh_key
 
     [ -f "$SIGNING_KEY" ]
@@ -558,8 +574,8 @@ gen_test_ssh_key_b64() {
 }
 
 @test "install_auth_ssh_key writes a managed block in ~/.ssh/config mapping github.com to id_aab_auth" {
-    GH_AUTH_SSH_PRIVATE_KEY_B64=$(gen_test_ssh_key_b64)
-    export GH_AUTH_SSH_PRIVATE_KEY_B64
+    AAB_GH_AUTH_SSH_PRIVATE_KEY_B64=$(gen_test_ssh_key_b64)
+    export AAB_GH_AUTH_SSH_PRIVATE_KEY_B64
     install_auth_ssh_key
 
     [ -f "$SSH_CONFIG" ]
@@ -573,8 +589,8 @@ gen_test_ssh_key_b64() {
 
 @test "install_auth_ssh_key does NOT configure git signing" {
     command -v git >/dev/null || skip "precondition: git must exist"
-    GH_AUTH_SSH_PRIVATE_KEY_B64=$(gen_test_ssh_key_b64)
-    export GH_AUTH_SSH_PRIVATE_KEY_B64
+    AAB_GH_AUTH_SSH_PRIVATE_KEY_B64=$(gen_test_ssh_key_b64)
+    export AAB_GH_AUTH_SSH_PRIVATE_KEY_B64
     install_auth_ssh_key
 
     # No signing config should have been written.
@@ -585,8 +601,8 @@ gen_test_ssh_key_b64() {
 }
 
 @test "install_signing_ssh_key does NOT touch ~/.ssh/config" {
-    GIT_SIGNING_PRIVATE_KEY_B64=$(gen_test_ssh_key_b64)
-    export GIT_SIGNING_PRIVATE_KEY_B64
+    AAB_GIT_SIGNING_PRIVATE_KEY_B64=$(gen_test_ssh_key_b64)
+    export AAB_GIT_SIGNING_PRIVATE_KEY_B64
     install_signing_ssh_key
 
     [ ! -e "$SSH_CONFIG" ]
@@ -594,8 +610,8 @@ gen_test_ssh_key_b64() {
 
 @test "install_signing_ssh_key configures git SSH signing (gpg.format, signingkey, commit/tag.gpgsign)" {
     command -v git >/dev/null || skip "precondition: git must exist"
-    GIT_SIGNING_PRIVATE_KEY_B64=$(gen_test_ssh_key_b64)
-    export GIT_SIGNING_PRIVATE_KEY_B64
+    AAB_GIT_SIGNING_PRIVATE_KEY_B64=$(gen_test_ssh_key_b64)
+    export AAB_GIT_SIGNING_PRIVATE_KEY_B64
     install_signing_ssh_key
 
     [ "$(git config --global --get gpg.format)" = "ssh" ]
@@ -605,8 +621,8 @@ gen_test_ssh_key_b64() {
 }
 
 @test "install_auth_ssh_key is idempotent (second run: single managed block, file size stable)" {
-    GH_AUTH_SSH_PRIVATE_KEY_B64=$(gen_test_ssh_key_b64)
-    export GH_AUTH_SSH_PRIVATE_KEY_B64
+    AAB_GH_AUTH_SSH_PRIVATE_KEY_B64=$(gen_test_ssh_key_b64)
+    export AAB_GH_AUTH_SSH_PRIVATE_KEY_B64
     install_auth_ssh_key
     local size1
     size1=$(wc -c < "$SSH_CONFIG")
@@ -628,8 +644,8 @@ Host gitlab.com
     IdentityFile ~/.ssh/id_ed25519_gitlab
     User git
 EOF
-    GH_AUTH_SSH_PRIVATE_KEY_B64=$(gen_test_ssh_key_b64)
-    export GH_AUTH_SSH_PRIVATE_KEY_B64
+    AAB_GH_AUTH_SSH_PRIVATE_KEY_B64=$(gen_test_ssh_key_b64)
+    export AAB_GH_AUTH_SSH_PRIVATE_KEY_B64
     install_auth_ssh_key
 
     # Original content still present.
@@ -641,28 +657,28 @@ EOF
 }
 
 @test "install_auth_ssh_key warns and skips on invalid-base64 input" {
-    export GH_AUTH_SSH_PRIVATE_KEY_B64="this is not base64!@#"
+    export AAB_GH_AUTH_SSH_PRIVATE_KEY_B64="this is not base64!@#"
     run install_auth_ssh_key
     [ "$status" -eq 0 ]
-    [[ "$output" == *"GH_AUTH_SSH_PRIVATE_KEY_B64 is not valid base64"* ]] \
-        || [[ "$output" == *"GH_AUTH_SSH_PRIVATE_KEY_B64 did not decode to a valid SSH private key"* ]]
+    [[ "$output" == *"AAB_GH_AUTH_SSH_PRIVATE_KEY_B64 is not valid base64"* ]] \
+        || [[ "$output" == *"AAB_GH_AUTH_SSH_PRIVATE_KEY_B64 did not decode to a valid SSH private key"* ]]
     [ ! -e "$AUTH_KEY" ]
 }
 
 @test "install_signing_ssh_key warns and skips on decoded-garbage input" {
-    export GIT_SIGNING_PRIVATE_KEY_B64="$(printf 'not-an-ssh-key' | base64 -w0)"
+    export AAB_GIT_SIGNING_PRIVATE_KEY_B64="$(printf 'not-an-ssh-key' | base64 -w0)"
     run install_signing_ssh_key
     [ "$status" -eq 0 ]
-    [[ "$output" == *"GIT_SIGNING_PRIVATE_KEY_B64 did not decode to a valid SSH private key"* ]]
+    [[ "$output" == *"AAB_GIT_SIGNING_PRIVATE_KEY_B64 did not decode to a valid SSH private key"* ]]
     [ ! -e "$SIGNING_KEY" ]
     [ ! -e "$SIGNING_KEY_PUB" ]
 }
 
 @test "auth and signing keys can be set independently (different keys, both installed)" {
     # Generate two distinct keys, set each env var to a different encoding.
-    GH_AUTH_SSH_PRIVATE_KEY_B64=$(gen_test_ssh_key_b64 "$TEST_HOME/auth_key")
-    GIT_SIGNING_PRIVATE_KEY_B64=$(gen_test_ssh_key_b64 "$TEST_HOME/sign_key")
-    export GH_AUTH_SSH_PRIVATE_KEY_B64 GIT_SIGNING_PRIVATE_KEY_B64
+    AAB_GH_AUTH_SSH_PRIVATE_KEY_B64=$(gen_test_ssh_key_b64 "$TEST_HOME/auth_key")
+    AAB_GIT_SIGNING_PRIVATE_KEY_B64=$(gen_test_ssh_key_b64 "$TEST_HOME/sign_key")
+    export AAB_GH_AUTH_SSH_PRIVATE_KEY_B64 AAB_GIT_SIGNING_PRIVATE_KEY_B64
 
     install_auth_ssh_key
     install_signing_ssh_key
@@ -699,7 +715,7 @@ _etc_env_sandbox() {
     AAB_CLAUDE_CODE_INFERENCE_PROVIDER="anthropic" \
     AAB_CLAUDE_CODE_FIRST_PARTY_MODEL="claude-opus-4-7" \
     AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY="sk-ant-test-key" \
-    GH_TOKEN="ghp_etc_env_test" \
+    AAB_GH_TOKEN="ghp_etc_env_test" \
         update_etc_environment
 
     [ -f "$ETC_ENV" ]
@@ -709,6 +725,7 @@ _etc_env_sandbox() {
     grep -q  '^AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY="sk-ant-test-key"$' "$ETC_ENV"
     grep -q  '^ANTHROPIC_API_KEY="sk-ant-test-key"$'            "$ETC_ENV"
     grep -q  '^ANTHROPIC_MODEL="claude-opus-4-7"$'              "$ETC_ENV"
+    grep -q  '^AAB_GH_TOKEN="ghp_etc_env_test"$'                "$ETC_ENV"
     grep -q  '^GH_TOKEN="ghp_etc_env_test"$'                    "$ETC_ENV"
     grep -q  '^CLAUDE_CODE_SANDBOXED="1"$'                      "$ETC_ENV"
     grep -q  '^DEBUG_SDK="1"$'                                  "$ETC_ENV"
@@ -756,8 +773,8 @@ _etc_env_sandbox() {
 
 @test "update_etc_environment is idempotent (single managed block after two runs)" {
     _etc_env_sandbox
-    AAB_CLAUDE_CODE_FIRST_PARTY_MODEL="claude-opus-4-7" GH_TOKEN="ghp_idem" update_etc_environment
-    AAB_CLAUDE_CODE_FIRST_PARTY_MODEL="claude-opus-4-7" GH_TOKEN="ghp_idem" update_etc_environment
+    AAB_CLAUDE_CODE_FIRST_PARTY_MODEL="claude-opus-4-7" AAB_GH_TOKEN="ghp_idem" update_etc_environment
+    AAB_CLAUDE_CODE_FIRST_PARTY_MODEL="claude-opus-4-7" AAB_GH_TOKEN="ghp_idem" update_etc_environment
 
     local begin_count end_count
     begin_count=$(grep -cF "$ETC_ENV_MARKER_BEGIN" "$ETC_ENV")
@@ -772,32 +789,35 @@ _etc_env_sandbox() {
 PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 LC_ALL="C.UTF-8"
 EOF
-    AAB_CLAUDE_CODE_FIRST_PARTY_MODEL="claude-opus-4-7" GH_TOKEN="ghp_keep" update_etc_environment
+    AAB_CLAUDE_CODE_FIRST_PARTY_MODEL="claude-opus-4-7" AAB_GH_TOKEN="ghp_keep" update_etc_environment
 
     # Pre-existing entries survive.
     grep -q '^PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"$' "$ETC_ENV"
     grep -q '^LC_ALL="C.UTF-8"$' "$ETC_ENV"
     # AAB block sits below them.
     grep -qF "$ETC_ENV_MARKER_BEGIN" "$ETC_ENV"
-    grep -q '^GH_TOKEN="ghp_keep"$'  "$ETC_ENV"
+    grep -q '^AAB_GH_TOKEN="ghp_keep"$' "$ETC_ENV"
+    grep -q '^GH_TOKEN="ghp_keep"$'     "$ETC_ENV"
 }
 
 @test "update_etc_environment replaces a stale managed block in place (re-runs match current env)" {
     _etc_env_sandbox
     AAB_CLAUDE_CODE_INFERENCE_PROVIDER="anthropic" \
-    AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY="sk-ant-old" GH_TOKEN="ghp_old" update_etc_environment
+    AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY="sk-ant-old" AAB_GH_TOKEN="ghp_old" update_etc_environment
     grep -q '^AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY="sk-ant-old"$' "$ETC_ENV"
     grep -q '^ANTHROPIC_API_KEY="sk-ant-old"$' "$ETC_ENV"
 
     # Second run with different env: old values must NOT linger.
-    unset AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY GH_TOKEN
+    unset AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY AAB_GH_TOKEN
     AAB_CLAUDE_CODE_INFERENCE_PROVIDER="anthropic" \
-    AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY="sk-ant-new" GH_TOKEN="ghp_new" update_etc_environment
+    AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY="sk-ant-new" AAB_GH_TOKEN="ghp_new" update_etc_environment
     grep -q '^AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY="sk-ant-new"$' "$ETC_ENV"
     grep -q '^ANTHROPIC_API_KEY="sk-ant-new"$' "$ETC_ENV"
+    grep -q '^AAB_GH_TOKEN="ghp_new"$'         "$ETC_ENV"
     grep -q '^GH_TOKEN="ghp_new"$'             "$ETC_ENV"
     ! grep -q '^AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY="sk-ant-old"$' "$ETC_ENV"
     ! grep -q '^ANTHROPIC_API_KEY="sk-ant-old"$' "$ETC_ENV"
+    ! grep -q '^AAB_GH_TOKEN="ghp_old"$'          "$ETC_ENV"
     ! grep -q '^GH_TOKEN="ghp_old"$'             "$ETC_ENV"
 }
 
@@ -838,27 +858,27 @@ EOF
     cat > "$TEST_HOME/aab.conf" <<'EOF'
 AAB_CLAUDE_CODE_FIRST_PARTY_MODEL=claude-sonnet-4-6
 AAB_CLAUDE_CODE_INFERENCE_PROVIDER=third-party
-GIT_AUTHOR_NAME="Alice Example"
-GIT_AUTHOR_EMAIL=alice@example.com
+AAB_GIT_AUTHOR_NAME="Alice Example"
+AAB_GIT_AUTHOR_EMAIL=alice@example.com
 EOF
     load_config_file "$TEST_HOME/aab.conf"
     [ "$AAB_CLAUDE_CODE_FIRST_PARTY_MODEL" = "claude-sonnet-4-6" ]
     [ "$AAB_CLAUDE_CODE_INFERENCE_PROVIDER" = "third-party" ]
-    [ "$GIT_AUTHOR_NAME" = "Alice Example" ]
-    [ "$GIT_AUTHOR_EMAIL" = "alice@example.com" ]
+    [ "$AAB_GIT_AUTHOR_NAME" = "Alice Example" ]
+    [ "$AAB_GIT_AUTHOR_EMAIL" = "alice@example.com" ]
 }
 
 @test "load_config_file: env var already set in the shell WINS over the file" {
     export AAB_CLAUDE_CODE_FIRST_PARTY_MODEL="claude-opus-4-7"
     cat > "$TEST_HOME/aab.conf" <<'EOF'
 AAB_CLAUDE_CODE_FIRST_PARTY_MODEL=claude-sonnet-4-6
-GIT_AUTHOR_NAME="Alice Example"
+AAB_GIT_AUTHOR_NAME="Alice Example"
 EOF
     load_config_file "$TEST_HOME/aab.conf"
     # Env-set value preserved.
     [ "$AAB_CLAUDE_CODE_FIRST_PARTY_MODEL" = "claude-opus-4-7" ]
     # File-only value still loaded.
-    [ "$GIT_AUTHOR_NAME" = "Alice Example" ]
+    [ "$AAB_GIT_AUTHOR_NAME" = "Alice Example" ]
 }
 
 @test "load_config_file: empty-string env var also beats the file (env 'set' wins even if empty)" {
@@ -874,13 +894,13 @@ EOF
 @test "load_config_file handles double- and single-quoted values, and leading 'export '" {
     cat > "$TEST_HOME/aab.conf" <<'EOF'
 AAB_CLAUDE_CODE_FIRST_PARTY_MODEL="claude-sonnet-4-6"
-GIT_AUTHOR_NAME='Alice Example'
-export GH_TOKEN=ghp_abc123
+AAB_GIT_AUTHOR_NAME='Alice Example'
+export AAB_GH_TOKEN=ghp_abc123
 EOF
     load_config_file "$TEST_HOME/aab.conf"
     [ "$AAB_CLAUDE_CODE_FIRST_PARTY_MODEL" = "claude-sonnet-4-6" ]
-    [ "$GIT_AUTHOR_NAME" = "Alice Example" ]
-    [ "$GH_TOKEN" = "ghp_abc123" ]
+    [ "$AAB_GIT_AUTHOR_NAME" = "Alice Example" ]
+    [ "$AAB_GH_TOKEN" = "ghp_abc123" ]
 }
 
 @test "load_config_file preserves values containing '=' (only the FIRST '=' splits)" {
@@ -912,11 +932,11 @@ EOF
     # parameter expansion, command substitution all work.
     cat > "$TEST_HOME/aab.conf" <<'EOF'
 AAB_CLAUDE_CODE_FIRST_PARTY_MODEL="${AAB_CLAUDE_CODE_FIRST_PARTY_MODEL:-claude-haiku-4-5}"
-GIT_AUTHOR_NAME="Default $(echo Alice)"
+AAB_GIT_AUTHOR_NAME="Default $(echo Alice)"
 EOF
     load_config_file "$TEST_HOME/aab.conf"
     [ "$AAB_CLAUDE_CODE_FIRST_PARTY_MODEL" = "claude-haiku-4-5" ]
-    [ "$GIT_AUTHOR_NAME" = "Default Alice" ]
+    [ "$AAB_GIT_AUTHOR_NAME" = "Default Alice" ]
 }
 
 @test "load_config_file aborts on malformed input under set -e" {
@@ -951,28 +971,28 @@ EOF
 @test "load_config_stdin reads KEY=VALUE pairs piped on stdin" {
     load_config_stdin <<'EOF'
 AAB_CLAUDE_CODE_FIRST_PARTY_MODEL=claude-sonnet-4-6
-GIT_AUTHOR_NAME="Alice Example"
+AAB_GIT_AUTHOR_NAME="Alice Example"
 EOF
     [ "$AAB_CLAUDE_CODE_FIRST_PARTY_MODEL" = "claude-sonnet-4-6" ]
-    [ "$GIT_AUTHOR_NAME" = "Alice Example" ]
+    [ "$AAB_GIT_AUTHOR_NAME" = "Alice Example" ]
 }
 
 @test "load_config_stdin: env beats stdin" {
     export AAB_CLAUDE_CODE_FIRST_PARTY_MODEL="claude-opus-4-7"
     load_config_stdin <<'EOF'
 AAB_CLAUDE_CODE_FIRST_PARTY_MODEL=claude-sonnet-4-6
-GIT_AUTHOR_NAME=Alice
+AAB_GIT_AUTHOR_NAME=Alice
 EOF
     [ "$AAB_CLAUDE_CODE_FIRST_PARTY_MODEL" = "claude-opus-4-7" ]
-    [ "$GIT_AUTHOR_NAME" = "Alice" ]
+    [ "$AAB_GIT_AUTHOR_NAME" = "Alice" ]
 }
 
 @test "load_config_stdin: empty stdin is a silent no-op" {
     # No body in the heredoc — load_config_stdin sees zero bytes and returns
     # without touching the env.
-    [ -z "${GIT_AUTHOR_NAME:-}" ]
+    [ -z "${AAB_GIT_AUTHOR_NAME:-}" ]
     load_config_stdin </dev/null
-    [ -z "${GIT_AUTHOR_NAME:-}" ]
+    [ -z "${AAB_GIT_AUTHOR_NAME:-}" ]
 }
 
 @test "main() runs load_config_file only when given a positional arg (unset env vars populated)" {
@@ -980,11 +1000,11 @@ EOF
     # to actually execute the rest of its pipeline here. Instead, replay
     # the same logic main() uses: if $1 is set, call load_config_file.
     cat > "$TEST_HOME/aab.conf" <<'EOF'
-GIT_AUTHOR_EMAIL=from-file@example.com
+AAB_GIT_AUTHOR_EMAIL=from-file@example.com
 EOF
     # No positional arg: env must remain untouched.
-    [ -z "${GIT_AUTHOR_EMAIL:-}" ]
+    [ -z "${AAB_GIT_AUTHOR_EMAIL:-}" ]
     # With a positional arg, the helper populates it.
     load_config_file "$TEST_HOME/aab.conf"
-    [ "$GIT_AUTHOR_EMAIL" = "from-file@example.com" ]
+    [ "$AAB_GIT_AUTHOR_EMAIL" = "from-file@example.com" ]
 }

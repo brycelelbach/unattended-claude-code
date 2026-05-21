@@ -25,10 +25,10 @@
 #   7. Configures git: user.name, user.email (from env vars), and registers
 #      gh as the github.com credential helper so `git clone` / `push` reuse
 #      the gh CLI's stored token.
-#  7b. If GH_AUTH_SSH_PRIVATE_KEY_B64 is set, decodes it to
+#  7b. If AAB_GH_AUTH_SSH_PRIVATE_KEY_B64 is set, decodes it to
 #      ~/.ssh/id_aab_auth and writes a managed block to ~/.ssh/config
 #      pointing github.com at that key.
-#  7c. If GIT_SIGNING_PRIVATE_KEY_B64 is set, decodes it to
+#  7c. If AAB_GIT_SIGNING_PRIVATE_KEY_B64 is set, decodes it to
 #      ~/.ssh/id_aab_signing and configures git to sign commits / tags
 #      with it (gpg.format=ssh, user.signingkey, commit.gpgsign,
 #      tag.gpgsign). Does NOT touch ~/.ssh/config — signing role only.
@@ -108,16 +108,17 @@
 #                       third-party gateway. Exported from the third-party
 #                       branch of the ~/.bashrc managed block. Also exported
 #                       as ANTHROPIC_AUTH_TOKEN for Claude Code itself.
-#   GH_TOKEN            GitHub personal access token. Exported from the
+#   AAB_GH_TOKEN        GitHub personal access token. Exported from the
 #                       ~/.bashrc managed block; gh reads it from the
-#                       environment directly, and the github.com credential
-#                       helper we register below delegates to
+#                       environment directly as GH_TOKEN, and the github.com
+#                       credential helper we register below delegates to
 #                       `gh auth git-credential`, so git clone/push reuse it.
-#   GIT_AUTHOR_NAME     Display name attached to git commits. Written to
+#   AAB_GIT_AUTHOR_NAME Display name attached to git commits. Written to
 #                       `git config --global user.name`.
-#   GIT_AUTHOR_EMAIL    Email address attached to git commits. Written to
+#   AAB_GIT_AUTHOR_EMAIL
+#                       Email address attached to git commits. Written to
 #                       `git config --global user.email`.
-#   GH_AUTH_SSH_PRIVATE_KEY_B64
+#   AAB_GH_AUTH_SSH_PRIVATE_KEY_B64
 #                       Base64-encoded OpenSSH private key used as the
 #                       github.com authentication identity. Decoded to
 #                       ~/.ssh/id_aab_auth (mode 0600); its public half
@@ -125,7 +126,7 @@
 #                       a managed block in ~/.ssh/config points github.com
 #                       at it with IdentitiesOnly=yes. Does NOT configure
 #                       git signing.
-#   GIT_SIGNING_PRIVATE_KEY_B64
+#   AAB_GIT_SIGNING_PRIVATE_KEY_B64
 #                       Base64-encoded OpenSSH private key used ONLY as
 #                       the git commit / tag signing key. Decoded to
 #                       ~/.ssh/id_aab_signing (mode 0600); public half at
@@ -396,13 +397,15 @@ configure_git() {
         warn "git not installed — skipping git configuration."
         return
     fi
-    if [ -n "${GIT_AUTHOR_NAME:-}" ]; then
-        git config --global user.name "$GIT_AUTHOR_NAME"
-        log "git user.name = $GIT_AUTHOR_NAME"
+    local git_author_name="${AAB_GIT_AUTHOR_NAME:-}"
+    local git_author_email="${AAB_GIT_AUTHOR_EMAIL:-}"
+    if [ -n "$git_author_name" ]; then
+        git config --global user.name "$git_author_name"
+        log "git user.name = $git_author_name"
     fi
-    if [ -n "${GIT_AUTHOR_EMAIL:-}" ]; then
-        git config --global user.email "$GIT_AUTHOR_EMAIL"
-        log "git user.email = $GIT_AUTHOR_EMAIL"
+    if [ -n "$git_author_email" ]; then
+        git config --global user.email "$git_author_email"
+        log "git user.email = $git_author_email"
     fi
     if command -v gh >/dev/null 2>&1; then
         git config --global 'credential.https://github.com.helper' '!gh auth git-credential'
@@ -411,9 +414,10 @@ configure_git() {
 }
 
 # ---------------------------------------------------------------------------
-# 7b. Install SSH keys supplied via $GH_AUTH_SSH_PRIVATE_KEY_B64 (for
-# github.com auth: clone/push over SSH) and/or $GIT_SIGNING_PRIVATE_KEY_B64
-# (for git commit/tag signing). These are two separate roles and the
+# 7b. Install SSH keys supplied via $AAB_GH_AUTH_SSH_PRIVATE_KEY_B64 (for
+# github.com auth: clone/push over SSH) and/or
+# $AAB_GIT_SIGNING_PRIVATE_KEY_B64 (for git commit/tag signing). These are
+# two separate roles and the
 # bootstrap treats them independently: either may be set, or both, or
 # neither. The signing key path does NOT touch ~/.ssh/config.
 # ---------------------------------------------------------------------------
@@ -507,39 +511,41 @@ PY
     chmod 0600 "$SSH_CONFIG"
 }
 
-# install_auth_ssh_key: Decode $GH_AUTH_SSH_PRIVATE_KEY_B64 to
+# install_auth_ssh_key: Decode $AAB_GH_AUTH_SSH_PRIVATE_KEY_B64 to
 # ~/.ssh/id_aab_auth and wire it as the IdentityFile for github.com in
 # ~/.ssh/config. Does NOT touch git signing config. Silent no-op when the
 # env var is unset.
 install_auth_ssh_key() {
-    local encoded="${GH_AUTH_SSH_PRIVATE_KEY_B64:-}"
+    local encoded="${AAB_GH_AUTH_SSH_PRIVATE_KEY_B64:-}"
+    local label="AAB_GH_AUTH_SSH_PRIVATE_KEY_B64"
     [ -z "$encoded" ] && return
 
     if ! command -v base64 >/dev/null 2>&1; then
-        warn "base64 not installed; cannot decode GH_AUTH_SSH_PRIVATE_KEY_B64; skipping."
+        warn "base64 not installed; cannot decode ${label}; skipping."
         return
     fi
-    _ensure_ssh_keygen || { warn "Skipping GH_AUTH_SSH_PRIVATE_KEY_B64 install (ssh-keygen unavailable)."; return; }
-    _decode_ssh_key "$encoded" "$AUTH_KEY" "GH_AUTH_SSH_PRIVATE_KEY_B64" || return 0
+    _ensure_ssh_keygen || { warn "Skipping ${label} install (ssh-keygen unavailable)."; return; }
+    _decode_ssh_key "$encoded" "$AUTH_KEY" "$label" || return 0
 
     _rewrite_ssh_config_block "$AUTH_KEY"
     log "Installed GitHub auth SSH key at $AUTH_KEY (pub $AUTH_KEY_PUB); wired github.com identity in $SSH_CONFIG."
 }
 
-# install_signing_ssh_key: Decode $GIT_SIGNING_PRIVATE_KEY_B64 to
+# install_signing_ssh_key: Decode $AAB_GIT_SIGNING_PRIVATE_KEY_B64 to
 # ~/.ssh/id_aab_signing and configure git to sign commits/tags with it.
 # Does NOT touch ~/.ssh/config — this key is for signing only. Silent
 # no-op when the env var is unset.
 install_signing_ssh_key() {
-    local encoded="${GIT_SIGNING_PRIVATE_KEY_B64:-}"
+    local encoded="${AAB_GIT_SIGNING_PRIVATE_KEY_B64:-}"
+    local label="AAB_GIT_SIGNING_PRIVATE_KEY_B64"
     [ -z "$encoded" ] && return
 
     if ! command -v base64 >/dev/null 2>&1; then
-        warn "base64 not installed; cannot decode GIT_SIGNING_PRIVATE_KEY_B64; skipping."
+        warn "base64 not installed; cannot decode ${label}; skipping."
         return
     fi
-    _ensure_ssh_keygen || { warn "Skipping GIT_SIGNING_PRIVATE_KEY_B64 install (ssh-keygen unavailable)."; return; }
-    _decode_ssh_key "$encoded" "$SIGNING_KEY" "GIT_SIGNING_PRIVATE_KEY_B64" || return 0
+    _ensure_ssh_keygen || { warn "Skipping ${label} install (ssh-keygen unavailable)."; return; }
+    _decode_ssh_key "$encoded" "$SIGNING_KEY" "$label" || return 0
 
     if command -v git >/dev/null 2>&1; then
         git config --global gpg.format ssh
@@ -788,6 +794,7 @@ update_bashrc() {
     local first_party_api_key="${AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY:-}"
     local third_party_base_url="${AAB_CLAUDE_CODE_THIRD_PARTY_BASE_URL:-}"
     local third_party_auth_token="${AAB_CLAUDE_CODE_THIRD_PARTY_AUTH_TOKEN:-}"
+    local github_token="${AAB_GH_TOKEN:-}"
 
     {
         printf '\n%s\n' "${BASHRC_MARKER_BEGIN}"
@@ -805,8 +812,9 @@ update_bashrc() {
             'export CLAUDE_CODE_SANDBOXED=1' \
             'export DEBUG_SDK=1' \
             "alias claude='claude --dangerously-skip-permissions'"
-        if [ -n "${GH_TOKEN:-}" ]; then
-            printf 'export GH_TOKEN=%q\n' "$GH_TOKEN"
+        if [ -n "$github_token" ]; then
+            printf 'export AAB_GH_TOKEN=%q\n' "$github_token"
+            printf 'export GH_TOKEN=%q\n' "$github_token"
         fi
 
         # Inner managed block — rewritten in place by
@@ -928,6 +936,7 @@ update_etc_environment() {
     local first_party_api_key="${AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY:-}"
     local third_party_base_url="${AAB_CLAUDE_CODE_THIRD_PARTY_BASE_URL:-}"
     local third_party_auth_token="${AAB_CLAUDE_CODE_THIRD_PARTY_AUTH_TOKEN:-}"
+    local github_token="${AAB_GH_TOKEN:-}"
 
     local tmp
     tmp=$(mktemp)
@@ -947,8 +956,9 @@ update_etc_environment() {
         printf 'AAB_CLAUDE_CODE_INFERENCE_PROVIDER="%s"\n' "$provider"
         printf 'CLAUDE_CODE_SANDBOXED="1"\n'
         printf 'DEBUG_SDK="1"\n'
-        if [ -n "${GH_TOKEN:-}" ]; then
-            printf 'GH_TOKEN="%s"\n' "$GH_TOKEN"
+        if [ -n "$github_token" ]; then
+            printf 'AAB_GH_TOKEN="%s"\n' "$github_token"
+            printf 'GH_TOKEN="%s"\n' "$github_token"
         fi
         if [ "$provider" = "anthropic" ]; then
             if [ -n "$first_party_api_key" ]; then
