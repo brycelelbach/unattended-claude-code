@@ -187,6 +187,8 @@ All optional. Anything unset is simply skipped.
 | `AAB_CLAUDE_CODE_THIRD_PARTY_HAIKU_MODEL` | Fully-qualified third-party gateway haiku-tier model ID. Exported verbatim as `ANTHROPIC_DEFAULT_HAIKU_MODEL` in the third-party branch. Defaults to `claude-haiku-4-5`. |
 | `AAB_CLAUDE_CODE_THIRD_PARTY_SONNET_MODEL` | Fully-qualified third-party gateway sonnet-tier model ID. Exported verbatim as `ANTHROPIC_DEFAULT_SONNET_MODEL` in the third-party branch. Defaults to `claude-sonnet-4-6`. |
 | `AAB_CLAUDE_CODE_THIRD_PARTY_OPUS_MODEL` | Fully-qualified third-party gateway opus-tier model ID. Exported verbatim as `ANTHROPIC_DEFAULT_OPUS_MODEL` in the third-party branch. Defaults to `claude-opus-4-7`. |
+| `AAB_CLAUDE_CODE_PLUGINS_FILE` | Path to a local `claude_code_plugins.txt`. If set and the file exists, it's used instead of fetching the canonical list. |
+| `AAB_CLAUDE_CODE_PLUGINS_URL` | URL of the plugin list to fetch when `AAB_CLAUDE_CODE_PLUGINS_FILE` is unset. Defaults to `claude_code_plugins.txt` on `main` of this repo. |
 | `AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY` | Anthropic first-party API key. Last 20 characters are written to `~/.claude.json` under `customApiKeyResponses.approved` so Claude Code doesn't prompt for approval. Also exported as `ANTHROPIC_API_KEY` from the anthropic branch of the `~/.bashrc` managed block. |
 | `AAB_CLAUDE_CODE_THIRD_PARTY_BASE_URL` | Base URL for the Anthropic-compatible third-party gateway. Also exported as `ANTHROPIC_BASE_URL` from the third-party branch. |
 | `AAB_CLAUDE_CODE_THIRD_PARTY_AUTH_TOKEN` | Bearer token for the third-party gateway. Also exported as `ANTHROPIC_AUTH_TOKEN` from the third-party branch. The third-party branch also exports `CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS=1` so context-management beta headers aren't sent to gateways that reject them. |
@@ -195,8 +197,6 @@ All optional. Anything unset is simply skipped.
 | `AAB_GIT_AUTHOR_EMAIL` | `git config --global user.email` |
 | `AAB_GH_AUTH_SSH_PRIVATE_KEY_B64` | Base64-encoded OpenSSH private key used as the `github.com` **authentication** identity. Decoded to `~/.ssh/id_aab_auth` (mode 0600); public half at `~/.ssh/id_aab_auth.pub`. A managed block in `~/.ssh/config` wires it as `IdentityFile` for `github.com` with `IdentitiesOnly yes`. Does **not** touch git signing config. See [SSH keys](#ssh-keys). |
 | `AAB_GIT_SIGNING_PRIVATE_KEY_B64` | Base64-encoded OpenSSH private key used **only** as the git commit/tag **signing** key. Decoded to `~/.ssh/id_aab_signing` (mode 0600); public half at `~/.ssh/id_aab_signing.pub`. Sets `gpg.format=ssh`, `user.signingkey=~/.ssh/id_aab_signing.pub`, `commit.gpgsign=true`, `tag.gpgsign=true`. Does **not** touch `~/.ssh/config`. See [SSH keys](#ssh-keys). |
-| `AAB_CLAUDE_CODE_PLUGINS_FILE` | Path to a local `claude_code_plugins.txt`. If set and the file exists, it's used instead of fetching the canonical list. |
-| `AAB_CLAUDE_CODE_PLUGINS_URL` | URL of the plugin list to fetch when `AAB_CLAUDE_CODE_PLUGINS_FILE` is unset. Defaults to `claude_code_plugins.txt` on `main` of this repo. |
 
 ## Managing the plugin list
 
