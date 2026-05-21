@@ -1,6 +1,6 @@
 # autonomous-agent-bootstrap
 
-A single idempotent bash script that turns a fresh Linux host into a ready-to-use Claude Code agent environment. Built for Brev VMs but works on any Ubuntu/Debian host.
+A single idempotent bash script that turns a fresh Linux host into a ready-to-use Claude Code and Codex agent environment. Built for Brev VMs but works on any Ubuntu/Debian host.
 
 ## What it sets up
 
@@ -12,21 +12,30 @@ A single idempotent bash script that turns a fresh Linux host into a ready-to-us
    - Onboarding wizard skipped (no theme / color-scheme prompt on first launch)
    - `AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY` pre-approved if provided (no first-run approval prompt)
    - `claude` aliased to `claude --dangerously-skip-permissions` in interactive shells
-2. **`gh` CLI** — latest release from the official `cli.github.com` apt repo (the distro-shipped `gh` predates `gh auth token` / `gh auth git-credential`).
-3. **git** — `user.name` / `user.email` set from env, and `gh` registered as the `github.com` credential helper so `git clone` / `git push` reuse the gh-stored token with no interactive prompt. If `AAB_GIT_SIGNING_PRIVATE_KEY_B64` is set, git is also configured to sign every commit and tag with that key (see [SSH keys](#ssh-keys)).
-4. **SSH keys for GitHub** — two independent optional env vars, each for a distinct role:
-   - `AAB_GH_AUTH_SSH_PRIVATE_KEY_B64` → the **authentication** identity. Decoded to `~/.ssh/id_aab_auth` (mode 0600) and wired as the `IdentityFile` for `github.com` in a managed block in `~/.ssh/config`.
-   - `AAB_GIT_SIGNING_PRIVATE_KEY_B64` → the **signing** key. Decoded to `~/.ssh/id_aab_signing` (mode 0600) and wired into git's `user.signingkey` / `commit.gpgsign` / `tag.gpgsign` config. Does **not** touch `~/.ssh/config`.
+2. **[Codex CLI](https://developers.openai.com/codex/cli)** — installed via OpenAI's standalone installer, then configured for unattended use:
+   - `approval_policy = "never"` and `sandbox_mode = "danger-full-access"` in `~/.codex/config.toml`
+   - `notice.hide_full_access_warning = true`
+   - `shell_environment_policy.inherit = "all"` and `ignore_default_excludes = true` so spawned commands can see credential env vars such as `GH_TOKEN` and `OPENAI_API_KEY`
+   - Model selected via `AAB_CODEX_FIRST_PARTY_MODEL` (defaults to `gpt-5.5`), reasoning effort via `AAB_CODEX_REASONING_EFFORT` (defaults to `xhigh`)
+   - `AAB_CODEX_FIRST_PARTY_API_KEY` logged in via `codex login --with-api-key` when provided, then exported as both `AAB_CODEX_FIRST_PARTY_API_KEY` and `OPENAI_API_KEY`
+   - `codex` aliased to `codex --dangerously-bypass-approvals-and-sandbox` in interactive shells
+   - The bootstrap user's `$HOME` and the bootstrap launch directory are marked trusted so project-local Codex config can load without a trust prompt
+3. **Inference smoke tests** — as the final bootstrap step, runs `claude -p "hello world"` and `codex exec "hello world"` so missing or invalid model credentials fail before first agent launch.
+4. **`gh` CLI** — latest release from the official `cli.github.com` apt repo (the distro-shipped `gh` predates `gh auth token` / `gh auth git-credential`).
+5. **git** — `user.name` / `user.email` set from env, and `gh` registered as the `github.com` credential helper so `git clone` / `git push` reuse the gh-stored token with no interactive prompt. If `AAB_GIT_SIGNING_PRIVATE_KEY_B64` is set, git is also configured to sign every commit and tag with that key (see [SSH keys](#ssh-keys)).
+6. **SSH keys for GitHub** — two independent optional env vars, each for a distinct role:
+   - `AAB_GH_AUTH_SSH_PRIVATE_KEY_B64` -> the **authentication** identity. Decoded to `~/.ssh/id_aab_auth` (mode 0600) and wired as the `IdentityFile` for `github.com` in a managed block in `~/.ssh/config`.
+   - `AAB_GIT_SIGNING_PRIVATE_KEY_B64` -> the **signing** key. Decoded to `~/.ssh/id_aab_signing` (mode 0600) and wired into git's `user.signingkey` / `commit.gpgsign` / `tag.gpgsign` config. Does **not** touch `~/.ssh/config`.
 
    See [SSH keys](#ssh-keys) for how to generate, encode, and upload them.
-5. **Claude Code plugins** — marketplaces listed in [`claude_code_plugins.txt`](./claude_code_plugins.txt) are registered in `~/.claude/settings.json`'s `extraKnownMarketplaces`, and the plugins they declare are flipped on in `enabledPlugins`. Claude Code fetches them on next launch, no prompt. Defaults ship [agitentic](https://github.com/brycelelbach/agitentic) and [autocuda](https://github.com/brycelelbach-private/autocuda) (private); add more by editing the file and re-running the bootstrap. Plugin repos can be public or private — the bootstrap fetches each marketplace manifest via `gh api` when `gh` is authenticated (picks up `AAB_GH_TOKEN` via the exported `GH_TOKEN` runtime variable, or `gh auth login` credentials) and falls back to unauthenticated `raw.githubusercontent.com` otherwise. Entries the caller lacks access to are logged and skipped; they do not fail the bootstrap.
+7. **Agent plugins** — marketplaces listed in [`agent_plugins.txt`](./agent_plugins.txt) are installed into both Claude Code and Codex. Claude Code also gets `~/.claude/settings.json` `extraKnownMarketplaces` / `enabledPlugins` entries so the plugins are enabled without a prompt. Defaults ship [agitentic](https://github.com/brycelelbach/agitentic) and [autocuda](https://github.com/brycelelbach-private/autocuda) (private); add more by editing the file and re-running the bootstrap. Plugin repos can be public or private — the bootstrap fetches each marketplace manifest via `gh api` when `gh` is authenticated (picks up `AAB_GH_TOKEN` via the exported `GH_TOKEN` runtime variable, or `gh auth login` credentials) and falls back to unauthenticated `raw.githubusercontent.com` otherwise. Entries the caller lacks access to are logged and skipped; they do not fail the bootstrap.
 
 ## Requirements
 
 **To run the bootstrap:**
 
 - Ubuntu/Debian host with `bash` and `apt-get`
-- A bare `ubuntu:22.04` container image is a valid starting point — everything else (`curl`, `python3`, `git`, `sudo`, `ca-certificates`, and `gh`) is installed by the script itself on first run
+- A bare `ubuntu:22.04` container image is a valid starting point — everything else (`curl`, `python3`, `git`, `tar`, `gawk`, `sudo`, `ca-certificates`, and `gh`) is installed by the script itself on first run
 - Passwordless `sudo` (or running as root) — required so the script can install those packages; it warns and skips otherwise
 
 **To run the tests** (see [Running the tests](#running-the-tests)):
@@ -54,7 +63,9 @@ export AAB_CLAUDE_CODE_THIRD_PARTY_HAIKU_MODEL="aws/anthropic/claude-haiku-4-5-v
 export AAB_CLAUDE_CODE_THIRD_PARTY_SONNET_MODEL="aws/anthropic/bedrock-claude-sonnet-4-6"
 export AAB_CLAUDE_CODE_THIRD_PARTY_OPUS_MODEL="aws/anthropic/bedrock-claude-opus-4-7"
 export AAB_CLAUDE_CODE_EFFORT="max"
+export AAB_CODEX_FIRST_PARTY_MODEL="gpt-5.5"
 export AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY="..."
+export AAB_CODEX_FIRST_PARTY_API_KEY="..."
 export AAB_CLAUDE_CODE_THIRD_PARTY_BASE_URL="..."
 export AAB_CLAUDE_CODE_THIRD_PARTY_AUTH_TOKEN="..."
 export AAB_GH_TOKEN="..."
@@ -63,6 +74,7 @@ export AAB_GIT_AUTHOR_EMAIL="youremail@gmail.com"
 curl -fsSL https://raw.githubusercontent.com/brycelelbach/autonomous-agent-bootstrap/main/bootstrap.bash | bash
 source ~/.bashrc
 claude -p "Say hello from Claude Code"
+codex exec "Say hello from Codex"
 ```
 
 ### 2. First-party only
@@ -71,13 +83,16 @@ claude -p "Say hello from Claude Code"
 export AAB_CLAUDE_CODE_INFERENCE_PROVIDER="anthropic"
 export AAB_CLAUDE_CODE_FIRST_PARTY_MODEL="claude-opus-4-7"
 export AAB_CLAUDE_CODE_EFFORT="max"
+export AAB_CODEX_FIRST_PARTY_MODEL="gpt-5.5"
 export AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY="..."
+export AAB_CODEX_FIRST_PARTY_API_KEY="..."
 export AAB_GH_TOKEN="..."
 export AAB_GIT_AUTHOR_NAME="Your Name"
 export AAB_GIT_AUTHOR_EMAIL="youremail@gmail.com"
 curl -fsSL https://raw.githubusercontent.com/brycelelbach/autonomous-agent-bootstrap/main/bootstrap.bash | bash
 source ~/.bashrc
 claude -p "Say hello from Claude Code"
+codex exec "Say hello from Codex"
 ```
 
 ### 3. Third-party only
@@ -89,6 +104,8 @@ export AAB_CLAUDE_CODE_THIRD_PARTY_HAIKU_MODEL="aws/anthropic/claude-haiku-4-5-v
 export AAB_CLAUDE_CODE_THIRD_PARTY_SONNET_MODEL="aws/anthropic/bedrock-claude-sonnet-4-6"
 export AAB_CLAUDE_CODE_THIRD_PARTY_OPUS_MODEL="aws/anthropic/bedrock-claude-opus-4-7"
 export AAB_CLAUDE_CODE_EFFORT="max"
+export AAB_CODEX_FIRST_PARTY_MODEL="gpt-5.5"
+export AAB_CODEX_FIRST_PARTY_API_KEY="..."
 export AAB_CLAUDE_CODE_THIRD_PARTY_BASE_URL="..."
 export AAB_CLAUDE_CODE_THIRD_PARTY_AUTH_TOKEN="..."
 export AAB_GH_TOKEN="..."
@@ -97,6 +114,7 @@ export AAB_GIT_AUTHOR_EMAIL="youremail@gmail.com"
 curl -fsSL https://raw.githubusercontent.com/brycelelbach/autonomous-agent-bootstrap/main/bootstrap.bash | bash
 source ~/.bashrc
 claude -p "Say hello from Claude Code"
+codex exec "Say hello from Codex"
 ```
 
 If you didn't pass `AAB_GH_TOKEN`, sign in to gh (`gh auth login`) before using GitHub.
@@ -112,7 +130,9 @@ cat > /tmp/aab.conf <<'CONF'
 AAB_CLAUDE_CODE_INFERENCE_PROVIDER=anthropic
 AAB_CLAUDE_CODE_FIRST_PARTY_MODEL=claude-opus-4-7
 AAB_CLAUDE_CODE_EFFORT=max
+AAB_CODEX_FIRST_PARTY_MODEL=gpt-5.5
 AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY=...
+AAB_CODEX_FIRST_PARTY_API_KEY=...
 AAB_GH_TOKEN=...
 AAB_GIT_AUTHOR_NAME=Your Name
 AAB_GIT_AUTHOR_EMAIL=you@example.com
@@ -125,7 +145,9 @@ bash bootstrap.bash /tmp/aab.conf
 bash bootstrap.bash <<'CONF'
 AAB_CLAUDE_CODE_FIRST_PARTY_MODEL=claude-opus-4-7
 AAB_CLAUDE_CODE_EFFORT=max
+AAB_CODEX_FIRST_PARTY_MODEL=gpt-5.5
 AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY=...
+AAB_CODEX_FIRST_PARTY_API_KEY=...
 AAB_GH_TOKEN=...
 CONF
 
@@ -140,7 +162,9 @@ curl -fsSL https://raw.githubusercontent.com/brycelelbach/autonomous-agent-boots
 bash <(curl -fsSL https://raw.githubusercontent.com/brycelelbach/autonomous-agent-bootstrap/main/bootstrap.bash) <<'CONF'
 AAB_CLAUDE_CODE_FIRST_PARTY_MODEL=claude-opus-4-7
 AAB_CLAUDE_CODE_EFFORT=max
+AAB_CODEX_FIRST_PARTY_MODEL=gpt-5.5
 AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY=...
+AAB_CODEX_FIRST_PARTY_API_KEY=...
 AAB_GH_TOKEN=...
 CONF
 ```
@@ -194,9 +218,11 @@ All optional. Anything unset is simply skipped.
 | `AAB_CLAUDE_CODE_THIRD_PARTY_SONNET_MODEL` | Fully-qualified third-party gateway sonnet-tier model ID. Exported verbatim as `ANTHROPIC_DEFAULT_SONNET_MODEL` in the third-party branch. Defaults to `claude-sonnet-4-6`. |
 | `AAB_CLAUDE_CODE_THIRD_PARTY_OPUS_MODEL` | Fully-qualified third-party gateway opus-tier model ID. Exported verbatim as `ANTHROPIC_DEFAULT_OPUS_MODEL` in the third-party branch. Defaults to `claude-opus-4-7`. |
 | `AAB_CLAUDE_CODE_EFFORT` | Claude Code effort level. Written to `~/.claude/settings.json`'s `"effortLevel"` field and exported as `CLAUDE_CODE_EFFORT_LEVEL`. Defaults to `max`. |
-| `AAB_CLAUDE_CODE_PLUGINS_FILE` | Path to a local `claude_code_plugins.txt`. If set and the file exists, it's used instead of fetching the canonical list. |
-| `AAB_CLAUDE_CODE_PLUGINS_URL` | URL of the plugin list to fetch when `AAB_CLAUDE_CODE_PLUGINS_FILE` is unset. Defaults to `claude_code_plugins.txt` on `main` of this repo. |
+| `AAB_CODEX_FIRST_PARTY_MODEL` | Codex first-party model name. Baked into `~/.codex/config.toml`'s `model` field. Defaults to `gpt-5.5`. |
+| `AAB_CODEX_REASONING_EFFORT` | Codex reasoning effort (`minimal`, `low`, `medium`, `high`, or `xhigh`). Baked into `~/.codex/config.toml`'s `model_reasoning_effort` field. Defaults to `xhigh`; invalid values fall back to `xhigh`. |
 | `AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY` | Anthropic first-party API key. Last 20 characters are written to `~/.claude.json` under `customApiKeyResponses.approved` so Claude Code doesn't prompt for approval. Also exported as `ANTHROPIC_API_KEY` from the anthropic branch of the `~/.bashrc` managed block. |
+| `AAB_CODEX_FIRST_PARTY_API_KEY` | OpenAI API key used by Codex. Piped into `codex login --with-api-key` when set, exported from the `~/.bashrc` managed block as both `AAB_CODEX_FIRST_PARTY_API_KEY` and `OPENAI_API_KEY`, and mirrored into `/etc/environment` so Codex can use API-key auth without a first-run sign-in prompt. |
+| `AAB_SKIP_INFERENCE_SMOKE_TESTS` | Set to `1`, `true`, or `yes` to skip the final Claude Code and Codex `hello world` inference smoke tests. Intended for e2e tests that use synthetic credentials. |
 | `AAB_CLAUDE_CODE_THIRD_PARTY_BASE_URL` | Base URL for the Anthropic-compatible third-party gateway. Also exported as `ANTHROPIC_BASE_URL` from the third-party branch. |
 | `AAB_CLAUDE_CODE_THIRD_PARTY_AUTH_TOKEN` | Bearer token for the third-party gateway. Also exported as `ANTHROPIC_AUTH_TOKEN` from the third-party branch. The third-party branch also exports `CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS=1` so context-management beta headers aren't sent to gateways that reject them. |
 | `AAB_GH_TOKEN` | GitHub personal access token. Exported from the `~/.bashrc` managed block as both `AAB_GH_TOKEN` and `GH_TOKEN`. `gh` reads `GH_TOKEN` from the environment directly, and since `gh auth git-credential` is registered as the `github.com` credential helper, `git clone` / `git push` reuse it automatically. |
@@ -204,17 +230,19 @@ All optional. Anything unset is simply skipped.
 | `AAB_GIT_AUTHOR_EMAIL` | `git config --global user.email` |
 | `AAB_GH_AUTH_SSH_PRIVATE_KEY_B64` | Base64-encoded OpenSSH private key used as the `github.com` **authentication** identity. Decoded to `~/.ssh/id_aab_auth` (mode 0600); public half at `~/.ssh/id_aab_auth.pub`. A managed block in `~/.ssh/config` wires it as `IdentityFile` for `github.com` with `IdentitiesOnly yes`. Does **not** touch git signing config. See [SSH keys](#ssh-keys). |
 | `AAB_GIT_SIGNING_PRIVATE_KEY_B64` | Base64-encoded OpenSSH private key used **only** as the git commit/tag **signing** key. Decoded to `~/.ssh/id_aab_signing` (mode 0600); public half at `~/.ssh/id_aab_signing.pub`. Sets `gpg.format=ssh`, `user.signingkey=~/.ssh/id_aab_signing.pub`, `commit.gpgsign=true`, `tag.gpgsign=true`. Does **not** touch `~/.ssh/config`. See [SSH keys](#ssh-keys). |
+| `AAB_AGENT_PLUGINS_FILE` | Path to a local `agent_plugins.txt`. If set and the file exists, it's used instead of fetching the canonical list. |
+| `AAB_AGENT_PLUGINS_URL` | URL of the plugin list to fetch when `AAB_AGENT_PLUGINS_FILE` is unset. Defaults to `agent_plugins.txt` on `main` of this repo. |
 
 ## Managing the plugin list
 
-Plugins are listed, one per line, in [`claude_code_plugins.txt`](./claude_code_plugins.txt) as GitHub `owner/repo` pointers to Claude Code plugin marketplaces (repos that contain `.claude-plugin/marketplace.json`). Entries can be public or private repos; private repos are fetched via `gh api` and require `gh` to be authenticated (via `AAB_GH_TOKEN`, `GITHUB_TOKEN`, or a stored `gh auth login` credential with access to the repo). For each entry, the bootstrap fetches the marketplace manifest, reads the marketplace name and plugin names it declares, and merges:
+Plugins are listed, one per line, in [`agent_plugins.txt`](./agent_plugins.txt) as GitHub `owner/repo` pointers to agent plugin marketplaces. The marketplace repo must contain `.claude-plugin/marketplace.json`; both Claude Code and Codex can read that marketplace shape. Entries can be public or private repos; private repos are fetched via `gh api` and require `gh` to be authenticated (via `AAB_GH_TOKEN`, `GITHUB_TOKEN`, or a stored `gh auth login` credential with access to the repo). For each entry, the bootstrap fetches the marketplace manifest, reads the marketplace name and plugin names it declares, and merges:
 
 - `extraKnownMarketplaces["<marketplace-name>"] = { "source": { "source": "github", "repo": "<owner/repo>" } }`
 - `enabledPlugins["<plugin>@<marketplace>"] = true`
 
-…into `~/.claude/settings.json`. Claude Code fetches and caches the plugins on next launch, at user scope, with no interactive prompt.
+…into `~/.claude/settings.json`. It also runs `claude plugin marketplace add`, `claude plugin install --scope user`, `codex plugin marketplace add`, and `codex plugin add` so both CLIs have the same plugin set registered and enabled.
 
-To add a plugin: append its marketplace's `owner/repo` to `claude_code_plugins.txt` and re-run the bootstrap. To install from your own fork or a different list, set `AAB_CLAUDE_CODE_PLUGINS_FILE=/path/to/your.txt` or `AAB_CLAUDE_CODE_PLUGINS_URL=https://...`.
+To add a plugin: append its marketplace's `owner/repo` to `agent_plugins.txt` and re-run the bootstrap. To install from your own fork or a different list, set `AAB_AGENT_PLUGINS_FILE=/path/to/your.txt` or `AAB_AGENT_PLUGINS_URL=https://...`.
 
 If the bootstrap can't fetch a marketplace manifest — usually because the repo is private and the active GitHub credential doesn't grant access — it logs the skip and moves on. Plugin install is treated as optional; an inaccessible entry does not fail the bootstrap.
 
@@ -224,7 +252,7 @@ The bootstrap handles two independent optional env vars for GitHub SSH keys, eac
 
 | Env var | Role | Writes private key to | Touches `~/.ssh/config`? | Touches git signing config? |
 | --- | --- | --- | --- | --- |
-| `AAB_GH_AUTH_SSH_PRIVATE_KEY_B64` | GitHub authentication (clone/push/pull over SSH) | `~/.ssh/id_aab_auth` | **Yes** — managed block wires `github.com` → `IdentityFile` | No |
+| `AAB_GH_AUTH_SSH_PRIVATE_KEY_B64` | GitHub authentication (clone/push/pull over SSH) | `~/.ssh/id_aab_auth` | **Yes** — managed block wires `github.com` -> `IdentityFile` | No |
 | `AAB_GIT_SIGNING_PRIVATE_KEY_B64` | git commit / tag signing | `~/.ssh/id_aab_signing` | **No** | **Yes** — `gpg.format=ssh`, `user.signingkey`, `commit.gpgsign=true`, `tag.gpgsign=true` |
 
 Keeping them separate lets you:
@@ -289,9 +317,14 @@ You can upload the same public key under both types if you want a single blob to
 | Path | How |
 | --- | --- |
 | `~/.local/bin/claude` (+ `~/.local/bin/env`) | Written by the Claude Code native installer. |
-| `~/.claude/settings.json` | Overwritten with unattended-mode defaults, then merged with `extraKnownMarketplaces` / `enabledPlugins` entries for each plugin in `claude_code_plugins.txt`. Existing file backed up to `settings.json.bak.<timestamp>` before the rewrite. |
+| `~/.local/bin/codex` (+ `~/.codex/packages/standalone/...`) | Written by OpenAI's Codex standalone installer. |
+| `~/.claude/settings.json` | Overwritten with unattended-mode defaults, then merged with `extraKnownMarketplaces` / `enabledPlugins` entries for each plugin in `agent_plugins.txt`. Existing file backed up to `settings.json.bak.<timestamp>` before the rewrite. |
+| `~/.claude/plugins/{marketplaces,cache}` | Written by `claude plugin marketplace add` and `claude plugin install --scope user` for each resolved plugin in `agent_plugins.txt`. |
+| `~/.codex/config.toml` | Overwritten with unattended Codex defaults while preserving existing Codex plugin marketplace/plugin tables: `approval_policy = "never"`, `sandbox_mode = "danger-full-access"`, `web_search = "live"`, credential-preserving shell env inheritance, and trusted entries for `$HOME` plus the bootstrap launch directory. Existing file backed up to `config.toml.bak.<timestamp>` before the rewrite. |
+| `~/.codex/auth.json` | Written by `codex login --with-api-key` when `AAB_CODEX_FIRST_PARTY_API_KEY` is set, selecting Codex API-key auth for first launch. |
+| `~/.codex/.tmp/marketplaces/*`, `~/.codex/plugins/cache/*` | Written by `codex plugin marketplace add` and `codex plugin add` for each resolved plugin in `agent_plugins.txt`. |
 | `~/.claude.json` | Merged — `hasCompletedOnboarding=true` and optional `customApiKeyResponses.approved` entry. Existing file backed up to `.claude.json.bak.<timestamp>`. |
-| `~/.bashrc` | Managed block between `# >>> autonomous-agent-bootstrap >>>` and `# <<< autonomous-agent-bootstrap <<<`. Rewritten wholesale on every run. |
+| `~/.bashrc` | Managed block between `# >>> autonomous-agent-bootstrap >>>` and `# <<< autonomous-agent-bootstrap <<<`. Rewritten wholesale on every run. The Codex standalone installer may also add its own PATH block when `~/.local/bin` was not already on `PATH`. |
 | `~/.gitconfig` | `user.name`, `user.email`, and `credential.https://github.com.helper`. When `AAB_GIT_SIGNING_PRIVATE_KEY_B64` is set, also `gpg.format=ssh`, `user.signingkey=~/.ssh/id_aab_signing.pub`, `commit.gpgsign=true`, `tag.gpgsign=true`. |
 | `~/.ssh/id_aab_auth`, `~/.ssh/id_aab_auth.pub` | Written only when `AAB_GH_AUTH_SSH_PRIVATE_KEY_B64` is set. Private key mode 0600, public key mode 0644, `~/.ssh` dir mode 0700. |
 | `~/.ssh/id_aab_signing`, `~/.ssh/id_aab_signing.pub` | Written only when `AAB_GIT_SIGNING_PRIVATE_KEY_B64` is set. Same mode layout as the auth pair. |
@@ -303,9 +336,10 @@ You can upload the same public key under both types if you want a single blob to
 
 Safe to re-run. Each run matches the current environment:
 
-- The `~/.bashrc` managed block is replaced, not appended — so re-running **without** `AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY` / `AAB_GH_TOKEN` set drops a previously-written export. If you want an export to persist across re-runs, keep the env var set when you re-run.
-- `settings.json` and `.claude.json` are backed up (timestamped `.bak`) before being rewritten.
-- `gh` and `claude` are skipped if already installed.
+- The `~/.bashrc` managed block is replaced, not appended — so re-running **without** `AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY` / `AAB_CODEX_FIRST_PARTY_API_KEY` / `AAB_GH_TOKEN` set drops a previously-written export. If you want an export to persist across re-runs, keep the env var set when you re-run.
+- `settings.json`, `config.toml`, and `.claude.json` are backed up (timestamped `.bak`) before being rewritten.
+- `gh`, `claude`, and `codex` are skipped or updated by their installers if already installed.
+- Final Claude Code and Codex inference smoke tests run on each bootstrap unless `AAB_SKIP_INFERENCE_SMOKE_TESTS` is set.
 - `git config --global` is only touched for variables that are set.
 - The `~/.ssh/config` managed block is replaced in place on re-run; pre-existing entries outside the block are preserved. Re-running without `AAB_GH_AUTH_SSH_PRIVATE_KEY_B64` set leaves `~/.ssh/config` untouched — the block is **not** removed automatically. To turn signing off, use `git config --global --unset commit.gpgsign` (and similar) after dropping `AAB_GIT_SIGNING_PRIVATE_KEY_B64`.
 - The `/etc/environment` managed block is replaced in place on re-run, mirroring the same resolved-at-bootstrap-time provider / model / token state that goes into `~/.bashrc`. The runtime `claude_code_switch_inference_provider` shell function only updates `~/.bashrc` (interactive sessions); to make a switch visible to non-interactive shells (ssh remote command, systemd `EnvironmentFile=`), re-run the bootstrap with the new provider.
@@ -324,7 +358,7 @@ All tests are driven by a single entry point, [`./test.bash`](./test.bash). `.gi
 ./test.bash --all        # lint + unit + e2e + secrets, in order
 ```
 
-**`--e2e` is destructive.** It invokes `bootstrap.bash` for real against the current `$HOME`: overwrites `~/.claude/settings.json`, rewrites the `~/.bashrc` managed block, modifies global git config, and installs `claude` / `brev` / `gh`. Only run it on a disposable VM or container (which is how CI exercises it). **`--docker` is the safe alternative** — it does the same run inside a throwaway `ubuntu:22.04` container, and also serves as the stronger check that `bootstrap.bash` works against a bare image with nothing pre-installed.
+**`--e2e` is destructive.** It invokes `bootstrap.bash` for real against the current `$HOME`: overwrites `~/.claude/settings.json`, overwrites `~/.codex/config.toml`, writes a synthetic `~/.codex/auth.json`, rewrites the `~/.bashrc` managed block, modifies global git config, skips the live inference smoke tests, and installs `claude` / `codex` / `brev` / `gh`. Only run it on a disposable VM or container (which is how CI exercises it). **`--docker` is the safe alternative** — it does the same run inside a throwaway `ubuntu:22.04` container, and also serves as the stronger check that `bootstrap.bash` works against a bare image with nothing pre-installed.
 
 Install the test prerequisites on Ubuntu/Debian with:
 

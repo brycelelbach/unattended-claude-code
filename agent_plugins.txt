@@ -1,0 +1,12 @@
+# Agent plugin marketplaces installed by bootstrap.bash.
+#
+# One GitHub "owner/repo" per line. The repo must contain
+# .claude-plugin/marketplace.json at the repository root. Claude Code and
+# Codex both read that marketplace manifest to discover the marketplace
+# name and the plugin name(s) to install.
+#
+# Lines beginning with '#' and blank lines are ignored. To install
+# additional plugins, add their marketplace repos below.
+
+brycelelbach/agitentic
+brycelelbach-private/autocuda

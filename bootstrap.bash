@@ -1,47 +1,58 @@
 #!/usr/bin/env bash
-# Bootstrap a fresh, non-interactive Claude Code install on a Linux host.
+# Bootstrap fresh, non-interactive Claude Code and Codex installs on a Linux host.
 #
 # Does the following, idempotently:
 #   0. Installs any missing base dependencies (curl, python3, git, sudo,
-#      ca-certificates) via apt-get, so the script runs on bare container
-#      images that ship only apt-get. Skipped silently if already present.
+#      tar, gawk, ca-certificates) via apt-get, so the script runs on bare
+#      container images that ship only apt-get. Skipped silently if already
+#      present.
 #   1. Installs / upgrades Claude Code via the native installer.
-#   2. Installs / upgrades the Brev CLI via the official install-latest.sh.
-#   3. Installs / upgrades the gh CLI from the official apt repo
+#   2. Installs / upgrades Codex via OpenAI's standalone installer.
+#   3. Installs / upgrades the Brev CLI via the official install-latest.sh.
+#   4. Installs / upgrades the gh CLI from the official apt repo
 #      (system-wide; needs sudo).
-#   ~. Registers Claude Code plugin marketplaces listed in
-#      claude_code_plugins.txt (default: agitentic + autocuda) into
-#      ~/.claude/settings.json's extraKnownMarketplaces, and enables the
-#      plugins they declare in enabledPlugins. Claude Code picks these up
-#      on next launch with no prompt (user scope).
-#   4. Writes ~/.claude/settings.json with unattended-mode defaults
+#   5. Writes ~/.claude/settings.json with unattended-mode defaults
 #      (bypassPermissions, sandboxed, configured effort, opus-4-7).
-#   5. Pre-populates ~/.claude.json with hasCompletedOnboarding=true so the
+#   6. Writes ~/.codex/config.toml with unattended-mode defaults
+#      (approval_policy=never, sandbox_mode=danger-full-access, xhigh effort,
+#      and trusted project roots).
+#  6b. If AAB_CODEX_FIRST_PARTY_API_KEY is set, pipes it into
+#      `codex login --with-api-key` so Codex uses first-party API-key auth
+#      without a device-code login prompt.
+#   7. Pre-populates ~/.claude.json with hasCompletedOnboarding=true so the
 #      first `claude` launch skips the theme / color-scheme wizard, and —
 #      if AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY is set — pre-approves that
 #      key so the CLI doesn't prompt for approval on first use either.
-#   6. Writes ~/.brev/onboarding.json so the first `brev` invocation skips
+#   8. Writes ~/.brev/onboarding.json so the first `brev` invocation skips
 #      the interactive tutorial.
-#   7. Configures git: user.name, user.email (from env vars), and registers
+#   9. Configures git: user.name, user.email (from env vars), and registers
 #      gh as the github.com credential helper so `git clone` / `push` reuse
 #      the gh CLI's stored token.
-#  7b. If AAB_GH_AUTH_SSH_PRIVATE_KEY_B64 is set, decodes it to
+#  9b. If AAB_GH_AUTH_SSH_PRIVATE_KEY_B64 is set, decodes it to
 #      ~/.ssh/id_aab_auth and writes a managed block to ~/.ssh/config
 #      pointing github.com at that key.
-#  7c. If AAB_GIT_SIGNING_PRIVATE_KEY_B64 is set, decodes it to
+#  9c. If AAB_GIT_SIGNING_PRIVATE_KEY_B64 is set, decodes it to
 #      ~/.ssh/id_aab_signing and configures git to sign commits / tags
 #      with it (gpg.format=ssh, user.signingkey, commit.gpgsign,
 #      tag.gpgsign). Does NOT touch ~/.ssh/config — signing role only.
-#   8. Appends PATH / alias / env exports to ~/.bashrc (managed block) so
+#  10. Registers agent plugin marketplaces listed in agent_plugins.txt
+#      (default: agitentic + autocuda) into both Claude Code and Codex.
+#      Claude Code also gets ~/.claude/settings.json extraKnownMarketplaces
+#      / enabledPlugins entries so it picks them up with no prompt.
+#  11. Appends PATH / alias / env exports to ~/.bashrc (managed block) so
 #      interactive shells pick up ~/.local/bin, run `claude` with
-#      --dangerously-skip-permissions, and — if
-#      AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY was set at bootstrap time —
-#      export it for future shells.
-#   9. Mirrors the resolved credential / config env vars (provider tokens,
-#      model names, GH_TOKEN, …) into a managed block in /etc/environment
-#      so non-interactive shells (ssh remote command, systemd services
-#      that EnvironmentFile=/etc/environment) see them too. Needs sudo;
-#      warns and skips if passwordless sudo isn't available.
+#      --dangerously-skip-permissions, run `codex` with
+#      --dangerously-bypass-approvals-and-sandbox, and export credential
+#      env vars for future shells when they were set at bootstrap time.
+#  12. Mirrors the resolved credential / config env vars (provider tokens,
+#      model names, AAB_GH_TOKEN, AAB_CODEX_FIRST_PARTY_API_KEY, …) into
+#      a managed block in /etc/environment so non-interactive shells (ssh
+#      remote command, systemd services that EnvironmentFile=/etc/environment)
+#      see them too. Needs sudo; warns and skips if passwordless sudo isn't
+#      available.
+#  13. Runs final inference smoke tests (`claude -p "hello world"` and
+#      `codex exec "hello world"`) so missing / invalid model credentials
+#      fail during bootstrap instead of first agent launch.
 #
 # Optional env vars:
 #   AAB_CLAUDE_CODE_INFERENCE_PROVIDER
@@ -95,15 +106,6 @@
 #                       ~/.claude/settings.json's "effortLevel" field,
 #                       exported as CLAUDE_CODE_EFFORT_LEVEL, and defaults
 #                       to max.
-#   AAB_CLAUDE_CODE_PLUGINS_FILE
-#                       Path to a local claude_code_plugins.txt listing
-#                       plugin marketplaces to install. Read directly when
-#                       set and the file exists; overrides
-#                       AAB_CLAUDE_CODE_PLUGINS_URL.
-#   AAB_CLAUDE_CODE_PLUGINS_URL
-#                       URL to fetch claude_code_plugins.txt from when no
-#                       local file is set. Defaults to the canonical file
-#                       on main of this repo.
 #   AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY
 #                       Anthropic first-party API key. Last 20 characters are
 #                       pre-approved in ~/.claude.json's
@@ -149,13 +151,40 @@
 #                       user.signingkey=~/.ssh/id_aab_signing.pub,
 #                       commit.gpgsign=true, tag.gpgsign=true. Does NOT
 #                       touch ~/.ssh/config.
+#   AAB_AGENT_PLUGINS_FILE
+#                       Path to a local agent_plugins.txt listing plugin
+#                       marketplaces to install for Claude Code and Codex.
+#                       Read directly when set and the file exists; overrides
+#                       AAB_AGENT_PLUGINS_URL.
+#   AAB_AGENT_PLUGINS_URL
+#                       URL to fetch agent_plugins.txt from when no local
+#                       file is set and ./agent_plugins.txt is absent.
+#                       Defaults to the canonical file on main of this repo.
+#   AAB_CODEX_FIRST_PARTY_MODEL
+#                       Codex first-party model name. Baked into
+#                       ~/.codex/config.toml's "model" field. Defaults to
+#                       gpt-5.5.
+#   AAB_CODEX_REASONING_EFFORT
+#                       Codex reasoning effort. Baked into
+#                       ~/.codex/config.toml's model_reasoning_effort field.
+#                       Defaults to xhigh.
+#   AAB_CODEX_FIRST_PARTY_API_KEY
+#                       OpenAI API key used by Codex. Piped into
+#                       `codex login --with-api-key` when set, exported as
+#                       both AAB_CODEX_FIRST_PARTY_API_KEY and OPENAI_API_KEY
+#                       from the ~/.bashrc managed block, and mirrored into
+#                       /etc/environment.
+#   AAB_SKIP_INFERENCE_SMOKE_TESTS
+#                       Set to 1/true/yes to skip the final Claude Code and
+#                       Codex inference smoke tests. Intended for e2e tests
+#                       that use synthetic credentials.
 #
 # Can be run from a local checkout or piped via `curl ... | bash`. Safe to
-# re-run: existing settings.json and .claude.json are backed up before
-# overwrite, and the ~/.bashrc managed block is replaced wholesale each
-# run, so re-running without AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY set will
-# drop a previously-written export (this is intentional — re-runs match the
-# current env).
+# re-run: existing settings.json, config.toml, and .claude.json are backed
+# up before overwrite, and the ~/.bashrc managed block is replaced
+# wholesale each run, so re-running without AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY
+# or AAB_CODEX_FIRST_PARTY_API_KEY set will drop a previously-written export
+# (this is intentional — re-runs match the current env).
 #
 # Optional config input — settings using the env-var contract above can
 # come in via either of two channels (in order of preference):
@@ -181,6 +210,8 @@ set -euo pipefail
 CLAUDE_DIR="${HOME}/.claude"
 SETTINGS_FILE="${CLAUDE_DIR}/settings.json"
 CLAUDE_JSON="${HOME}/.claude.json"
+CODEX_DIR="${HOME}/.codex"
+CODEX_CONFIG="${CODEX_DIR}/config.toml"
 BREV_DIR="${HOME}/.brev"
 BREV_ONBOARDING="${BREV_DIR}/onboarding_step.json"
 BASHRC="${HOME}/.bashrc"
@@ -202,7 +233,8 @@ DEFAULT_CLAUDE_CODE_HAIKU_MODEL="claude-haiku-4-5"
 DEFAULT_CLAUDE_CODE_SONNET_MODEL="claude-sonnet-4-6"
 DEFAULT_CLAUDE_CODE_OPUS_MODEL="claude-opus-4-7"
 DEFAULT_CLAUDE_CODE_EFFORT="max"
-PLUGINS_DEFAULT_URL="https://raw.githubusercontent.com/brycelelbach/autonomous-agent-bootstrap/main/claude_code_plugins.txt"
+DEFAULT_CODEX_MODEL="gpt-5.5"
+DEFAULT_CODEX_REASONING_EFFORT="xhigh"
 
 log() { printf '[bootstrap] %s\n' "$*"; }
 warn() { printf '[bootstrap] WARN: %s\n' "$*" >&2; }
@@ -213,9 +245,10 @@ need_sudo() {
 SUDO=$(need_sudo)
 
 # ---------------------------------------------------------------------------
-# 0. Install base dependencies (curl / python3 / git / ca-certificates)
-# via apt-get. Bare container images (e.g. ubuntu:22.04) ship with
-# apt-get but nothing else, so we can't assume curl or python3 exist.
+# 0. Install base dependencies (curl / python3 / git / tar / gawk /
+# ca-certificates) via apt-get. Bare container images (e.g. ubuntu:22.04)
+# ship with apt-get but nothing else, so we can't assume curl or python3
+# exist.
 # Skip silently if everything's already present — the common case on a
 # host with a developer-ish baseline.
 # ---------------------------------------------------------------------------
@@ -224,6 +257,8 @@ install_base_deps() {
     command -v curl    >/dev/null 2>&1 || needed+=(curl)
     command -v python3 >/dev/null 2>&1 || needed+=(python3)
     command -v git     >/dev/null 2>&1 || needed+=(git)
+    command -v tar     >/dev/null 2>&1 || needed+=(tar)
+    command -v gawk    >/dev/null 2>&1 || needed+=(gawk)
     # The Brev installer (install-latest.sh) invokes `sudo` unconditionally;
     # bare container images ship without sudo, so we install it even when
     # running as root. Sudo as uid 0 is a no-op passthrough.
@@ -259,7 +294,61 @@ install_claude() {
 }
 
 # ---------------------------------------------------------------------------
-# 2. Install / upgrade the Brev CLI via the official install-latest.sh.
+# 2. Install / upgrade Codex via OpenAI's standalone installer.
+# ---------------------------------------------------------------------------
+install_codex() {
+    log "Installing / updating Codex CLI via standalone installer..."
+    local installer_url="https://github.com/openai/codex/releases/latest/download/install.sh"
+    local github_token="${GH_TOKEN:-${GITHUB_TOKEN:-${AAB_GH_TOKEN:-}}}"
+
+    if [ -z "$github_token" ]; then
+        curl -fsSL "$installer_url" | bash
+        return
+    fi
+
+    local real_curl
+    real_curl="$(command -v curl)"
+    local tmpdir
+    tmpdir="$(mktemp -d)"
+    (
+        set -euo pipefail
+        trap 'rm -rf "$tmpdir"' EXIT
+
+        local curl_config="${tmpdir}/github-curl.conf"
+        local curl_wrapper="${tmpdir}/curl"
+        local installer="${tmpdir}/codex-install.sh"
+
+        umask 077
+        {
+            printf 'header = "Authorization: Bearer %s"\n' "$github_token"
+            printf 'header = "X-GitHub-Api-Version: 2022-11-28"\n'
+        } > "$curl_config"
+
+        cat > "$curl_wrapper" <<'BASH'
+#!/usr/bin/env bash
+set -euo pipefail
+for arg in "$@"; do
+    case "$arg" in
+        https://api.github.com/*)
+            exec "${CODEX_INSTALLER_REAL_CURL:?}" --config "${CODEX_INSTALLER_CURL_CONFIG:?}" "$@"
+            ;;
+    esac
+done
+exec "${CODEX_INSTALLER_REAL_CURL:?}" "$@"
+BASH
+        chmod 700 "$curl_wrapper"
+
+        log "Using GitHub authentication for Codex release metadata requests."
+        "$real_curl" -fsSL "$installer_url" -o "$installer"
+        CODEX_INSTALLER_REAL_CURL="$real_curl" \
+            CODEX_INSTALLER_CURL_CONFIG="$curl_config" \
+            PATH="${tmpdir}:$PATH" \
+            bash "$installer"
+    )
+}
+
+# ---------------------------------------------------------------------------
+# 3. Install / upgrade the Brev CLI via the official install-latest.sh.
 # ---------------------------------------------------------------------------
 install_brev() {
     log "Installing / updating Brev CLI via official installer..."
@@ -267,7 +356,7 @@ install_brev() {
 }
 
 # ---------------------------------------------------------------------------
-# 3. Install gh CLI from the official cli.github.com repo.
+# 4. Install gh CLI from the official cli.github.com repo.
 #
 # Ubuntu / Debian ship an old gh that predates `gh auth token` and
 # `gh auth git-credential`. We specifically want those so the git
@@ -295,7 +384,7 @@ ensure_gh() {
 }
 
 # ---------------------------------------------------------------------------
-# 4. Write ~/.claude/settings.json.
+# 5. Write ~/.claude/settings.json.
 # ---------------------------------------------------------------------------
 write_settings() {
     mkdir -p "${CLAUDE_DIR}"
@@ -337,7 +426,115 @@ JSON
 }
 
 # ---------------------------------------------------------------------------
-# 5. Skip the first-run onboarding (theme prompt) AND pre-approve the
+# 6. Write ~/.codex/config.toml.
+# ---------------------------------------------------------------------------
+_toml_escape() {
+    local s="$1"
+    s=${s//\\/\\\\}
+    s=${s//\"/\\\"}
+    printf '%s' "$s"
+}
+
+write_codex_config() {
+    mkdir -p "${CODEX_DIR}"
+    local preserved_plugin_config=""
+    if [[ -f "${CODEX_CONFIG}" ]]; then
+        local backup
+        backup="${CODEX_CONFIG}.bak.$(date +%Y%m%d-%H%M%S)"
+        cp "${CODEX_CONFIG}" "${backup}"
+        log "Backed up existing config.toml -> ${backup}."
+        preserved_plugin_config=$(awk '
+            /^\[(marketplaces|plugins)\./ { keep = 1 }
+            /^\[/ && $0 !~ /^\[(marketplaces|plugins)\./ { keep = 0 }
+            keep { print }
+        ' "${CODEX_CONFIG}")
+    fi
+
+    local model="${AAB_CODEX_FIRST_PARTY_MODEL:-$DEFAULT_CODEX_MODEL}"
+    local effort="${AAB_CODEX_REASONING_EFFORT:-$DEFAULT_CODEX_REASONING_EFFORT}"
+    case "$effort" in
+        minimal|low|medium|high|xhigh) ;;
+        *)
+            warn "AAB_CODEX_REASONING_EFFORT='${effort}' is not one of minimal, low, medium, high, or xhigh; defaulting to ${DEFAULT_CODEX_REASONING_EFFORT}."
+            effort="$DEFAULT_CODEX_REASONING_EFFORT"
+            ;;
+    esac
+
+    local model_escaped home_escaped cwd cwd_escaped
+    model_escaped=$(_toml_escape "$model")
+    home_escaped=$(_toml_escape "$HOME")
+    cwd="${PWD:-$HOME}"
+    cwd_escaped=$(_toml_escape "$cwd")
+
+    cat > "${CODEX_CONFIG}" <<TOML
+model = "${model_escaped}"
+model_reasoning_effort = "${effort}"
+approval_policy = "never"
+sandbox_mode = "danger-full-access"
+web_search = "live"
+
+[notice]
+hide_full_access_warning = true
+
+[shell_environment_policy]
+inherit = "all"
+ignore_default_excludes = true
+
+[projects."${home_escaped}"]
+trust_level = "trusted"
+TOML
+
+    if [ "$cwd" != "$HOME" ]; then
+        cat >> "${CODEX_CONFIG}" <<TOML
+
+[projects."${cwd_escaped}"]
+trust_level = "trusted"
+TOML
+    fi
+
+    if [ -n "$preserved_plugin_config" ]; then
+        cat >> "${CODEX_CONFIG}" <<TOML
+
+${preserved_plugin_config}
+TOML
+    fi
+
+    log "Wrote ${CODEX_CONFIG} (model=${model}, effort=${effort}, approval=never, sandbox=danger-full-access)."
+}
+
+# ---------------------------------------------------------------------------
+# 6b. Configure Codex API-key auth.
+#
+# `codex login --with-api-key` reads the key from stdin and writes Codex's
+# own auth cache, which makes first launch non-interactive even when no
+# ChatGPT/device-code login exists. When the caller provides a key, failure
+# is fatal so the bootstrap never silently leaves Codex on an interactive
+# auth path.
+# ---------------------------------------------------------------------------
+configure_codex_auth() {
+    local api_key="${AAB_CODEX_FIRST_PARTY_API_KEY:-}"
+    [ -z "$api_key" ] && return
+
+    local codex_bin=""
+    if command -v codex >/dev/null 2>&1; then
+        codex_bin=$(command -v codex)
+    elif [ -x "${HOME}/.local/bin/codex" ]; then
+        codex_bin="${HOME}/.local/bin/codex"
+    else
+        warn "codex binary not on PATH; cannot configure AAB_CODEX_FIRST_PARTY_API_KEY auth."
+        exit 1
+    fi
+
+    if ! printf '%s' "$api_key" | "$codex_bin" login --with-api-key >/dev/null; then
+        warn "codex login --with-api-key failed; cannot configure Codex API-key auth."
+        exit 1
+    fi
+
+    log "Configured Codex API-key auth from AAB_CODEX_FIRST_PARTY_API_KEY."
+}
+
+# ---------------------------------------------------------------------------
+# 7. Skip the first-run onboarding (theme prompt) AND pre-approve the
 # AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY fingerprint if one is set.
 #
 # Both gates live in ~/.claude.json (NOT ~/.claude/settings.json):
@@ -381,7 +578,7 @@ PY
 }
 
 # ---------------------------------------------------------------------------
-# 6. Write ~/.brev/onboarding.json to disable the Brev interactive tutorial.
+# 8. Write ~/.brev/onboarding.json to disable the Brev interactive tutorial.
 # ---------------------------------------------------------------------------
 skip_brev_onboarding() {
     mkdir -p "${BREV_DIR}"
@@ -398,7 +595,7 @@ JSON
 }
 
 # ---------------------------------------------------------------------------
-# 7. Configure git: identity + gh as github.com credential helper.
+# 9. Configure git: identity + gh as github.com credential helper.
 # ---------------------------------------------------------------------------
 configure_git() {
     if ! command -v git >/dev/null 2>&1; then
@@ -422,7 +619,7 @@ configure_git() {
 }
 
 # ---------------------------------------------------------------------------
-# 7b. Install SSH keys supplied via $AAB_GH_AUTH_SSH_PRIVATE_KEY_B64 (for
+# 9b. Install SSH keys supplied via $AAB_GH_AUTH_SSH_PRIVATE_KEY_B64 (for
 # github.com auth: clone/push over SSH) and/or
 # $AAB_GIT_SIGNING_PRIVATE_KEY_B64 (for git commit/tag signing). These are
 # two separate roles and the
@@ -567,28 +764,30 @@ install_signing_ssh_key() {
 }
 
 # ---------------------------------------------------------------------------
-# 8. Install Claude Code plugins listed in claude_code_plugins.txt.
+# 10. Install agent plugins listed in agent_plugins.txt.
 #
-# Each line is a GitHub owner/repo that hosts a Claude Code marketplace
-# (repo contains .claude-plugin/marketplace.json). We fetch each
-# marketplace.json to discover the marketplace name and the plugin
-# names, then merge them into ~/.claude/settings.json under
-# extraKnownMarketplaces (so the marketplace is known) and
-# enabledPlugins (so the plugin is turned on). Claude Code picks these
-# up on next launch, user-scope, no prompt.
+# Each line is a GitHub owner/repo that hosts a plugin marketplace
+# containing .claude-plugin/marketplace.json. Claude Code and Codex both
+# understand that marketplace manifest. We fetch it once to discover the
+# marketplace name and plugin names, then install the same resolved plugin
+# selectors into both CLIs.
 #
-# The list is taken from (in order): $AAB_CLAUDE_CODE_PLUGINS_FILE if
-# set to an existing path, otherwise fetched from
-# $AAB_CLAUDE_CODE_PLUGINS_URL (defaults to main@autonomous-agent-bootstrap).
+# The list is taken from (in order): $AAB_AGENT_PLUGINS_FILE, then
+# ./agent_plugins.txt when present, otherwise $AAB_AGENT_PLUGINS_URL.
 # ---------------------------------------------------------------------------
-install_claude_code_plugins() {
+PLUGINS_DEFAULT_FILE="${PWD}/agent_plugins.txt"
+PLUGINS_DEFAULT_URL="https://raw.githubusercontent.com/brycelelbach/autonomous-agent-bootstrap/main/agent_plugins.txt"
+install_agent_plugins() {
     command -v python3 >/dev/null 2>&1 || { warn "python3 required for plugin install; skipping."; return; }
-    local plugins_file="${AAB_CLAUDE_CODE_PLUGINS_FILE:-}"
-    local plugins_url="${AAB_CLAUDE_CODE_PLUGINS_URL:-$PLUGINS_DEFAULT_URL}"
+    local plugins_file="${AAB_AGENT_PLUGINS_FILE:-}"
+    local plugins_url="${AAB_AGENT_PLUGINS_URL:-$PLUGINS_DEFAULT_URL}"
     local content=""
     if [ -n "$plugins_file" ] && [ -f "$plugins_file" ]; then
         content=$(cat "$plugins_file")
         log "Reading plugin list from ${plugins_file}."
+    elif [ -z "$plugins_file" ] && [ -f "$PLUGINS_DEFAULT_FILE" ]; then
+        content=$(cat "$PLUGINS_DEFAULT_FILE")
+        log "Reading plugin list from ${PLUGINS_DEFAULT_FILE}."
     elif content=$(curl -fsSL "$plugins_url" 2>/dev/null); then
         log "Fetched plugin list from ${plugins_url}."
     else
@@ -596,7 +795,7 @@ install_claude_code_plugins() {
         return
     fi
 
-    # Strip comments and blanks → one repo per line.
+    # Strip comments and blanks into one repo per line.
     local -a repos=()
     while IFS= read -r line; do
         line="${line%%#*}"
@@ -641,7 +840,7 @@ install_claude_code_plugins() {
         if [ -z "$marketplace_json" ]; then
             # Most commonly this means the repo is private and the caller
             # lacks access (or gh isn't authenticated). Plugin install is an
-            # optional step — log and move on without failing the bootstrap.
+            # optional step; log and move on without failing the bootstrap.
             log "Could not fetch .claude-plugin/marketplace.json from ${repo} (private repo without access?); skipping."
             continue
         fi
@@ -662,9 +861,17 @@ install_claude_code_plugins() {
     done
 
     if [ ${#tuples[@]} -eq 0 ]; then
-        warn "No plugins resolved; skipping settings.json update."
+        warn "No plugins resolved; skipping plugin install."
         return
     fi
+
+    install_claude_code_plugins "${tuples[@]}"
+    install_codex_plugins "${tuples[@]}"
+}
+
+install_claude_code_plugins() {
+    local -a tuples=("$@")
+    [ ${#tuples[@]} -eq 0 ] && return
 
     # Merge into ~/.claude/settings.json. write_settings has already run,
     # so the file exists and is valid JSON.
@@ -701,7 +908,7 @@ PY
     elif [ -x "${HOME}/.local/bin/claude" ]; then
         claude_bin="${HOME}/.local/bin/claude"
     else
-        warn "claude binary not on PATH; skipping plugin install (settings.json was still written)."
+        warn "claude binary not on PATH; skipping Claude Code plugin install (settings.json was still written)."
         return
     fi
 
@@ -729,7 +936,7 @@ PY
         marketplace="${t#*|}"
         plugin="${marketplace#*|}"
         marketplace="${marketplace%|*}"
-        log "Installing plugin ${plugin}@${marketplace}."
+        log "Installing Claude Code plugin ${plugin}@${marketplace}."
         "$claude_bin" plugin install "${plugin}@${marketplace}" --scope user 2>&1 | sed 's/^/  /' || \
             warn "claude plugin install ${plugin}@${marketplace} returned non-zero."
     done
@@ -762,14 +969,52 @@ PY
     fi
 }
 
+install_codex_plugins() {
+    local -a tuples=("$@")
+    [ ${#tuples[@]} -eq 0 ] && return
+
+    local codex_bin=""
+    if command -v codex >/dev/null 2>&1; then
+        codex_bin=$(command -v codex)
+    elif [ -x "${HOME}/.local/bin/codex" ]; then
+        codex_bin="${HOME}/.local/bin/codex"
+    else
+        warn "codex binary not on PATH; skipping Codex plugin install."
+        return
+    fi
+
+    # Dedupe repos before `marketplace add`.
+    local -A seen_repos=()
+    local t repo marketplace plugin
+    for t in "${tuples[@]}"; do
+        repo="${t%%|*}"
+        if [ -z "${seen_repos[$repo]:-}" ]; then
+            log "Adding marketplace ${repo} to codex's plugin registry."
+            "$codex_bin" plugin marketplace add "$repo" 2>&1 | sed 's/^/  /' || \
+                warn "codex plugin marketplace add ${repo} returned non-zero (private repo without access? skipping)."
+            seen_repos[$repo]=1
+        fi
+    done
+
+    for t in "${tuples[@]}"; do
+        repo="${t%%|*}"
+        marketplace="${t#*|}"
+        plugin="${marketplace#*|}"
+        marketplace="${marketplace%|*}"
+        log "Installing Codex plugin ${plugin}@${marketplace}."
+        "$codex_bin" plugin add "${plugin}@${marketplace}" 2>&1 | sed 's/^/  /' || \
+            warn "codex plugin add ${plugin}@${marketplace} returned non-zero."
+    done
+}
+
 # ---------------------------------------------------------------------------
-# 9. Rewrite the unattended-mode block in ~/.bashrc.
+# 11. Rewrite the unattended-mode block in ~/.bashrc.
 #
 # The block is identified by the BEGIN/END markers. On re-run we strip the
 # old block and append a fresh one, so the output always matches the
-# current env — re-running without AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY set
-# will drop a previously-written export, which is what the header comment
-# promises.
+# current env — re-running without AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY or
+# AAB_CODEX_FIRST_PARTY_API_KEY set will drop a previously-written export,
+# which is what the header comment promises.
 # ---------------------------------------------------------------------------
 update_bashrc() {
     touch "${BASHRC}"
@@ -803,27 +1048,33 @@ update_bashrc() {
     local third_party_base_url="${AAB_CLAUDE_CODE_THIRD_PARTY_BASE_URL:-}"
     local third_party_auth_token="${AAB_CLAUDE_CODE_THIRD_PARTY_AUTH_TOKEN:-}"
     local github_token="${AAB_GH_TOKEN:-}"
+    local codex_first_party_api_key="${AAB_CODEX_FIRST_PARTY_API_KEY:-}"
 
     {
         printf '\n%s\n' "${BASHRC_MARKER_BEGIN}"
         printf '%s\n' \
             '# Sources env file created by the Claude Code native installer, ensures' \
-            "# ~/.local/bin is on PATH, and makes every interactive 'claude' invocation" \
-            '# skip the permission prompt so the agent can run unattended. DEBUG_SDK=1' \
-            '# turns on Claude Code debug logging — written to ~/.claude/debug/<uuid>.txt' \
-            "# (with 'latest' symlinked to the current run); content is verbose-tagged" \
-            '# regardless of CLAUDE_CODE_DEBUG_LOG_LEVEL when DEBUG_SDK is the gate.' \
+            "# ~/.local/bin is on PATH, and makes interactive 'claude' / 'codex'" \
+            '# invocations skip permission prompts so agents can run unattended.' \
+            '# DEBUG_SDK=1 turns on Claude Code debug logging, written to' \
+            '# ~/.claude/debug/<uuid>.txt with latest symlinked to the current' \
+            '# run and verbose tags enabled by the DEBUG_SDK gate.' \
             'if [ -f "$HOME/.local/bin/env" ]; then' \
             '    . "$HOME/.local/bin/env"' \
             'fi' \
             'export PATH="$HOME/.local/bin:$PATH"' \
             'export CLAUDE_CODE_SANDBOXED=1' \
             'export DEBUG_SDK=1' \
-            "alias claude='claude --dangerously-skip-permissions'"
+            "alias claude='claude --dangerously-skip-permissions'" \
+            "alias codex='codex --dangerously-bypass-approvals-and-sandbox'"
         printf 'export CLAUDE_CODE_EFFORT_LEVEL=%q\n' "$effort"
         if [ -n "$github_token" ]; then
             printf 'export AAB_GH_TOKEN=%q\n' "$github_token"
             printf 'export GH_TOKEN=%q\n' "$github_token"
+        fi
+        if [ -n "$codex_first_party_api_key" ]; then
+            printf 'export AAB_CODEX_FIRST_PARTY_API_KEY=%q\n' "$codex_first_party_api_key"
+            printf 'export OPENAI_API_KEY=%q\n' "$codex_first_party_api_key"
         fi
 
         # Inner managed block — rewritten in place by
@@ -896,13 +1147,14 @@ update_bashrc() {
 }
 
 # ---------------------------------------------------------------------------
-# 10. Mirror the credential / config env vars into /etc/environment.
+# 12. Mirror the credential / config env vars into /etc/environment.
 #
 # ~/.bashrc only loads for interactive bash shells; `ssh user@host cmd`
 # launches a non-interactive non-login shell that skips it entirely, and
 # systemd services start with whatever env their unit file declares — so
-# anything that needs ANTHROPIC_API_KEY, GH_TOKEN, ANTHROPIC_MODEL, etc.
-# from one of those contexts has nothing to read.
+# anything that needs ANTHROPIC_API_KEY, AAB_CODEX_FIRST_PARTY_API_KEY,
+# OPENAI_API_KEY, GH_TOKEN, ANTHROPIC_MODEL, etc. from one of those contexts
+# has nothing to read.
 #
 # /etc/environment is the cross-shell mechanism on Linux: PAM's pam_env
 # module loads it during session setup, including for ssh non-interactive
@@ -947,6 +1199,7 @@ update_etc_environment() {
     local third_party_base_url="${AAB_CLAUDE_CODE_THIRD_PARTY_BASE_URL:-}"
     local third_party_auth_token="${AAB_CLAUDE_CODE_THIRD_PARTY_AUTH_TOKEN:-}"
     local github_token="${AAB_GH_TOKEN:-}"
+    local codex_first_party_api_key="${AAB_CODEX_FIRST_PARTY_API_KEY:-}"
 
     local tmp
     tmp=$(mktemp)
@@ -970,6 +1223,10 @@ update_etc_environment() {
         if [ -n "$github_token" ]; then
             printf 'AAB_GH_TOKEN="%s"\n' "$github_token"
             printf 'GH_TOKEN="%s"\n' "$github_token"
+        fi
+        if [ -n "$codex_first_party_api_key" ]; then
+            printf 'AAB_CODEX_FIRST_PARTY_API_KEY="%s"\n' "$codex_first_party_api_key"
+            printf 'OPENAI_API_KEY="%s"\n' "$codex_first_party_api_key"
         fi
         if [ "$provider" = "anthropic" ]; then
             if [ -n "$first_party_api_key" ]; then
@@ -1006,6 +1263,58 @@ update_etc_environment() {
     $SUDO install -m 0644 "$tmp" "$ETC_ENV"
     rm -f "$tmp"
     log "Wrote autonomous-agent-bootstrap block to $ETC_ENV (provider=$provider)."
+}
+
+# ---------------------------------------------------------------------------
+# 13. Run real inference smoke tests.
+#
+# The bootstrap's contract is a ready-to-use autonomous agent environment.
+# Installing binaries and writing config is not enough if the configured
+# credentials cannot complete an actual model turn. Run a tiny prompt through
+# both CLIs as the final step so auth/model failures surface while the
+# bootstrap still has the operator's attention.
+# ---------------------------------------------------------------------------
+run_inference_smoke_tests() {
+    case "${AAB_SKIP_INFERENCE_SMOKE_TESTS:-}" in
+        1|true|TRUE|yes|YES)
+            log "Skipping Claude Code and Codex inference smoke tests because AAB_SKIP_INFERENCE_SMOKE_TESTS is set."
+            return 0
+            ;;
+    esac
+
+    local claude_bin=""
+    if command -v claude >/dev/null 2>&1; then
+        claude_bin=$(command -v claude)
+    elif [ -x "${HOME}/.local/bin/claude" ]; then
+        claude_bin="${HOME}/.local/bin/claude"
+    else
+        warn "claude binary not on PATH; cannot run Claude Code inference smoke test."
+        exit 1
+    fi
+
+    local codex_bin=""
+    if command -v codex >/dev/null 2>&1; then
+        codex_bin=$(command -v codex)
+    elif [ -x "${HOME}/.local/bin/codex" ]; then
+        codex_bin="${HOME}/.local/bin/codex"
+    else
+        warn "codex binary not on PATH; cannot run Codex inference smoke test."
+        exit 1
+    fi
+
+    log 'Running Claude Code inference smoke test: claude -p "hello world".'
+    if ! "$claude_bin" --dangerously-skip-permissions -p "hello world" >/dev/null; then
+        warn "Claude Code inference smoke test failed."
+        exit 1
+    fi
+    log "Claude Code inference smoke test passed."
+
+    log 'Running Codex inference smoke test: codex exec "hello world".'
+    if ! "$codex_bin" exec --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check "hello world" >/dev/null; then
+        warn "Codex inference smoke test failed."
+        exit 1
+    fi
+    log "Codex inference smoke test passed."
 }
 
 # ---------------------------------------------------------------------------
@@ -1080,17 +1389,21 @@ main() {
     fi
     install_base_deps
     install_claude
+    install_codex
     install_brev
     ensure_gh
     write_settings
+    write_codex_config
+    configure_codex_auth
     skip_onboarding
     skip_brev_onboarding
     configure_git
     install_auth_ssh_key
     install_signing_ssh_key
-    install_claude_code_plugins
+    install_agent_plugins
     update_bashrc
     update_etc_environment
+    run_inference_smoke_tests
     log "Done. Open a new shell (or 'source ~/.bashrc') so the PATH / alias take effect."
 }
 

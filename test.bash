@@ -8,9 +8,12 @@
 #   ./test.bash --unit       bats suite (tests/bootstrap.bats)
 #   ./test.bash --e2e        runs bootstrap.bash on THIS host + assertions.
 #                            Destructive: overwrites ~/.claude/settings.json,
-#                            rewrites the ~/.bashrc managed block, modifies
-#                            global git config, and installs claude / brev
-#                            / gh. Only run on a disposable machine.
+#                            overwrites ~/.codex/config.toml, rewrites the
+#                            ~/.bashrc managed block, modifies global git
+#                            config, writes a synthetic Codex API-key login,
+#                            skips live inference smoke tests, and installs
+#                            claude / codex / brev / gh.
+#                            Only run on a disposable machine.
 #   ./test.bash --docker     same as --e2e, but inside a fresh ubuntu:22.04
 #                            docker container — safe to run anywhere with
 #                            docker available, and the stronger check that
@@ -54,9 +57,15 @@ run_e2e() {
     : "${AAB_CLAUDE_CODE_FIRST_PARTY_MODEL:=claude-opus-4-7}"
     : "${AAB_CLAUDE_CODE_EFFORT:=max}"
     : "${AAB_CLAUDE_CODE_INFERENCE_PROVIDER:=anthropic}"
+    : "${AAB_CODEX_FIRST_PARTY_MODEL:=gpt-5.5}"
+    : "${AAB_CODEX_REASONING_EFFORT:=xhigh}"
+    : "${AAB_CODEX_FIRST_PARTY_API_KEY:=codex-e2e-test-key}"
+    : "${AAB_SKIP_INFERENCE_SMOKE_TESTS:=1}"
     export AAB_GIT_AUTHOR_NAME AAB_GIT_AUTHOR_EMAIL \
            AAB_CLAUDE_CODE_FIRST_PARTY_MODEL AAB_CLAUDE_CODE_EFFORT \
-           AAB_CLAUDE_CODE_INFERENCE_PROVIDER
+           AAB_CLAUDE_CODE_INFERENCE_PROVIDER \
+           AAB_CODEX_FIRST_PARTY_MODEL AAB_CODEX_REASONING_EFFORT \
+           AAB_CODEX_FIRST_PARTY_API_KEY AAB_SKIP_INFERENCE_SMOKE_TESTS
 
     bash bootstrap.bash
     bash tests/e2e-assertions.bash
