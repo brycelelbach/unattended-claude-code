@@ -49,11 +49,11 @@ run_e2e() {
     # bootstrap.bash's install_base_deps step installs curl / python3 /
     # git / sudo / ca-certificates itself, so we only need bash here.
     need bash
-    : "${GIT_AUTHOR_NAME:=CI Bot}"
-    : "${GIT_AUTHOR_EMAIL:=ci@example.com}"
+    : "${AAB_GIT_AUTHOR_NAME:=CI Bot}"
+    : "${AAB_GIT_AUTHOR_EMAIL:=ci@example.com}"
     : "${AAB_CLAUDE_CODE_FIRST_PARTY_MODEL:=claude-opus-4-7}"
     : "${AAB_CLAUDE_CODE_INFERENCE_PROVIDER:=anthropic}"
-    export GIT_AUTHOR_NAME GIT_AUTHOR_EMAIL \
+    export AAB_GIT_AUTHOR_NAME AAB_GIT_AUTHOR_EMAIL \
            AAB_CLAUDE_CODE_FIRST_PARTY_MODEL AAB_CLAUDE_CODE_INFERENCE_PROVIDER
 
     bash bootstrap.bash
