@@ -51,10 +51,10 @@ run_e2e() {
     need bash
     : "${GIT_AUTHOR_NAME:=CI Bot}"
     : "${GIT_AUTHOR_EMAIL:=ci@example.com}"
-    : "${AAB_CLAUDE_CODE_MODEL:=claude-opus-4-7}"
+    : "${AAB_CLAUDE_CODE_FIRST_PARTY_MODEL:=claude-opus-4-7}"
     : "${AAB_CLAUDE_CODE_INFERENCE_PROVIDER:=anthropic}"
     export GIT_AUTHOR_NAME GIT_AUTHOR_EMAIL \
-           AAB_CLAUDE_CODE_MODEL AAB_CLAUDE_CODE_INFERENCE_PROVIDER
+           AAB_CLAUDE_CODE_FIRST_PARTY_MODEL AAB_CLAUDE_CODE_INFERENCE_PROVIDER
 
     bash bootstrap.bash
     bash tests/e2e-assertions.bash

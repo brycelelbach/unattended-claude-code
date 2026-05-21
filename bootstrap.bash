@@ -59,13 +59,7 @@
 #   AAB_CLAUDE_CODE_THIRD_PARTY_MODEL
 #                       Fully-qualified third-party gateway model ID. Exported
 #                       as ANTHROPIC_MODEL in the third-party branch. Defaults
-#                       to AAB_CLAUDE_CODE_MODEL or claude-opus-4-7 when unset.
-#   AAB_CLAUDE_CODE_MODEL
-#                       Compatibility alias for both first-party and
-#                       third-party model defaults.
-#   AAB_CLAUDE_CODE_HAIKU_MODEL
-#                       Compatibility alias for both first-party and
-#                       third-party haiku-tier model defaults.
+#                       to claude-opus-4-7 when unset.
 #   AAB_CLAUDE_CODE_FIRST_PARTY_HAIKU_MODEL
 #                       First-party Anthropic haiku-tier model name. Claude
 #                       Code uses this tier for background tasks (web search,
@@ -75,11 +69,7 @@
 #   AAB_CLAUDE_CODE_THIRD_PARTY_HAIKU_MODEL
 #                       Fully-qualified third-party gateway haiku-tier model
 #                       ID. Exported verbatim as ANTHROPIC_DEFAULT_HAIKU_MODEL
-#                       in the third-party branch. Defaults to
-#                       AAB_CLAUDE_CODE_HAIKU_MODEL or claude-haiku-4-5.
-#   AAB_CLAUDE_CODE_SONNET_MODEL
-#                       Compatibility alias for both first-party and
-#                       third-party sonnet-tier model defaults.
+#                       in the third-party branch. Defaults to claude-haiku-4-5.
 #   AAB_CLAUDE_CODE_FIRST_PARTY_SONNET_MODEL
 #                       First-party Anthropic sonnet-tier model name, used
 #                       when /model selects the sonnet tier mid-session.
@@ -89,11 +79,7 @@
 #                       Fully-qualified third-party gateway sonnet-tier model
 #                       ID. Exported verbatim as
 #                       ANTHROPIC_DEFAULT_SONNET_MODEL in the third-party
-#                       branch. Defaults to AAB_CLAUDE_CODE_SONNET_MODEL or
-#                       claude-sonnet-4-6.
-#   AAB_CLAUDE_CODE_OPUS_MODEL
-#                       Compatibility alias for both first-party and
-#                       third-party opus-tier model defaults.
+#                       branch. Defaults to claude-sonnet-4-6.
 #   AAB_CLAUDE_CODE_FIRST_PARTY_OPUS_MODEL
 #                       First-party Anthropic opus-tier model name, used when
 #                       /model selects the opus tier mid-session. Exported as
@@ -102,8 +88,7 @@
 #   AAB_CLAUDE_CODE_THIRD_PARTY_OPUS_MODEL
 #                       Fully-qualified third-party gateway opus-tier model
 #                       ID. Exported verbatim as ANTHROPIC_DEFAULT_OPUS_MODEL
-#                       in the third-party branch. Defaults to
-#                       AAB_CLAUDE_CODE_OPUS_MODEL or claude-opus-4-7.
+#                       in the third-party branch. Defaults to claude-opus-4-7.
 #   ANTHROPIC_API_KEY   Anthropic first-party API key. Last 20 characters are
 #                       pre-approved in ~/.claude.json's
 #                       customApiKeyResponses.approved so Claude Code won't
@@ -305,7 +290,7 @@ write_settings() {
         cp "${SETTINGS_FILE}" "${backup}"
         log "Backed up existing settings.json -> ${backup}."
     fi
-    local model="${AAB_CLAUDE_CODE_FIRST_PARTY_MODEL:-${AAB_CLAUDE_CODE_MODEL:-$DEFAULT_CLAUDE_CODE_MODEL}}"
+    local model="${AAB_CLAUDE_CODE_FIRST_PARTY_MODEL:-$DEFAULT_CLAUDE_CODE_MODEL}"
     # Belt-and-suspenders: bypassPermissions skips prompts for writes
     # under .claude/ already, but the explicit allow list also keeps
     # config / memory / agent / skill edits unprompted in 'default' or
@@ -784,14 +769,14 @@ update_bashrc() {
         warn "AAB_CLAUDE_CODE_INFERENCE_PROVIDER='${provider}' is not 'anthropic' or 'third-party'; defaulting to 'anthropic'."
         provider="anthropic"
     fi
-    local model="${AAB_CLAUDE_CODE_FIRST_PARTY_MODEL:-${AAB_CLAUDE_CODE_MODEL:-$DEFAULT_CLAUDE_CODE_MODEL}}"
-    local haiku_model="${AAB_CLAUDE_CODE_FIRST_PARTY_HAIKU_MODEL:-${AAB_CLAUDE_CODE_HAIKU_MODEL:-$DEFAULT_CLAUDE_CODE_HAIKU_MODEL}}"
-    local sonnet_model="${AAB_CLAUDE_CODE_FIRST_PARTY_SONNET_MODEL:-${AAB_CLAUDE_CODE_SONNET_MODEL:-$DEFAULT_CLAUDE_CODE_SONNET_MODEL}}"
-    local opus_model="${AAB_CLAUDE_CODE_FIRST_PARTY_OPUS_MODEL:-${AAB_CLAUDE_CODE_OPUS_MODEL:-$DEFAULT_CLAUDE_CODE_OPUS_MODEL}}"
-    local third_party_model="${AAB_CLAUDE_CODE_THIRD_PARTY_MODEL:-${AAB_CLAUDE_CODE_MODEL:-$DEFAULT_CLAUDE_CODE_MODEL}}"
-    local third_party_haiku_model="${AAB_CLAUDE_CODE_THIRD_PARTY_HAIKU_MODEL:-${AAB_CLAUDE_CODE_HAIKU_MODEL:-$DEFAULT_CLAUDE_CODE_HAIKU_MODEL}}"
-    local third_party_sonnet_model="${AAB_CLAUDE_CODE_THIRD_PARTY_SONNET_MODEL:-${AAB_CLAUDE_CODE_SONNET_MODEL:-$DEFAULT_CLAUDE_CODE_SONNET_MODEL}}"
-    local third_party_opus_model="${AAB_CLAUDE_CODE_THIRD_PARTY_OPUS_MODEL:-${AAB_CLAUDE_CODE_OPUS_MODEL:-$DEFAULT_CLAUDE_CODE_OPUS_MODEL}}"
+    local model="${AAB_CLAUDE_CODE_FIRST_PARTY_MODEL:-$DEFAULT_CLAUDE_CODE_MODEL}"
+    local haiku_model="${AAB_CLAUDE_CODE_FIRST_PARTY_HAIKU_MODEL:-$DEFAULT_CLAUDE_CODE_HAIKU_MODEL}"
+    local sonnet_model="${AAB_CLAUDE_CODE_FIRST_PARTY_SONNET_MODEL:-$DEFAULT_CLAUDE_CODE_SONNET_MODEL}"
+    local opus_model="${AAB_CLAUDE_CODE_FIRST_PARTY_OPUS_MODEL:-$DEFAULT_CLAUDE_CODE_OPUS_MODEL}"
+    local third_party_model="${AAB_CLAUDE_CODE_THIRD_PARTY_MODEL:-$DEFAULT_CLAUDE_CODE_MODEL}"
+    local third_party_haiku_model="${AAB_CLAUDE_CODE_THIRD_PARTY_HAIKU_MODEL:-$DEFAULT_CLAUDE_CODE_HAIKU_MODEL}"
+    local third_party_sonnet_model="${AAB_CLAUDE_CODE_THIRD_PARTY_SONNET_MODEL:-$DEFAULT_CLAUDE_CODE_SONNET_MODEL}"
+    local third_party_opus_model="${AAB_CLAUDE_CODE_THIRD_PARTY_OPUS_MODEL:-$DEFAULT_CLAUDE_CODE_OPUS_MODEL}"
 
     {
         printf '\n%s\n' "${BASHRC_MARKER_BEGIN}"
@@ -915,14 +900,14 @@ update_etc_environment() {
     if [ "$provider" != "anthropic" ] && [ "$provider" != "third-party" ]; then
         provider="anthropic"
     fi
-    local model="${AAB_CLAUDE_CODE_FIRST_PARTY_MODEL:-${AAB_CLAUDE_CODE_MODEL:-$DEFAULT_CLAUDE_CODE_MODEL}}"
-    local haiku_model="${AAB_CLAUDE_CODE_FIRST_PARTY_HAIKU_MODEL:-${AAB_CLAUDE_CODE_HAIKU_MODEL:-$DEFAULT_CLAUDE_CODE_HAIKU_MODEL}}"
-    local sonnet_model="${AAB_CLAUDE_CODE_FIRST_PARTY_SONNET_MODEL:-${AAB_CLAUDE_CODE_SONNET_MODEL:-$DEFAULT_CLAUDE_CODE_SONNET_MODEL}}"
-    local opus_model="${AAB_CLAUDE_CODE_FIRST_PARTY_OPUS_MODEL:-${AAB_CLAUDE_CODE_OPUS_MODEL:-$DEFAULT_CLAUDE_CODE_OPUS_MODEL}}"
-    local third_party_model="${AAB_CLAUDE_CODE_THIRD_PARTY_MODEL:-${AAB_CLAUDE_CODE_MODEL:-$DEFAULT_CLAUDE_CODE_MODEL}}"
-    local third_party_haiku_model="${AAB_CLAUDE_CODE_THIRD_PARTY_HAIKU_MODEL:-${AAB_CLAUDE_CODE_HAIKU_MODEL:-$DEFAULT_CLAUDE_CODE_HAIKU_MODEL}}"
-    local third_party_sonnet_model="${AAB_CLAUDE_CODE_THIRD_PARTY_SONNET_MODEL:-${AAB_CLAUDE_CODE_SONNET_MODEL:-$DEFAULT_CLAUDE_CODE_SONNET_MODEL}}"
-    local third_party_opus_model="${AAB_CLAUDE_CODE_THIRD_PARTY_OPUS_MODEL:-${AAB_CLAUDE_CODE_OPUS_MODEL:-$DEFAULT_CLAUDE_CODE_OPUS_MODEL}}"
+    local model="${AAB_CLAUDE_CODE_FIRST_PARTY_MODEL:-$DEFAULT_CLAUDE_CODE_MODEL}"
+    local haiku_model="${AAB_CLAUDE_CODE_FIRST_PARTY_HAIKU_MODEL:-$DEFAULT_CLAUDE_CODE_HAIKU_MODEL}"
+    local sonnet_model="${AAB_CLAUDE_CODE_FIRST_PARTY_SONNET_MODEL:-$DEFAULT_CLAUDE_CODE_SONNET_MODEL}"
+    local opus_model="${AAB_CLAUDE_CODE_FIRST_PARTY_OPUS_MODEL:-$DEFAULT_CLAUDE_CODE_OPUS_MODEL}"
+    local third_party_model="${AAB_CLAUDE_CODE_THIRD_PARTY_MODEL:-$DEFAULT_CLAUDE_CODE_MODEL}"
+    local third_party_haiku_model="${AAB_CLAUDE_CODE_THIRD_PARTY_HAIKU_MODEL:-$DEFAULT_CLAUDE_CODE_HAIKU_MODEL}"
+    local third_party_sonnet_model="${AAB_CLAUDE_CODE_THIRD_PARTY_SONNET_MODEL:-$DEFAULT_CLAUDE_CODE_SONNET_MODEL}"
+    local third_party_opus_model="${AAB_CLAUDE_CODE_THIRD_PARTY_OPUS_MODEL:-$DEFAULT_CLAUDE_CODE_OPUS_MODEL}"
 
     local tmp
     tmp=$(mktemp)

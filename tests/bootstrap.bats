@@ -9,9 +9,7 @@ setup() {
     export HOME="$TEST_HOME"
     export REPO_ROOT="$(cd "$BATS_TEST_DIRNAME/.." && pwd)"
     # Unset env vars the script looks at so each test controls its own.
-    unset AAB_CLAUDE_CODE_MODEL AAB_CLAUDE_CODE_HAIKU_MODEL \
-          AAB_CLAUDE_CODE_SONNET_MODEL AAB_CLAUDE_CODE_OPUS_MODEL \
-          AAB_CLAUDE_CODE_FIRST_PARTY_MODEL \
+    unset AAB_CLAUDE_CODE_FIRST_PARTY_MODEL \
           AAB_CLAUDE_CODE_FIRST_PARTY_HAIKU_MODEL \
           AAB_CLAUDE_CODE_FIRST_PARTY_SONNET_MODEL \
           AAB_CLAUDE_CODE_FIRST_PARTY_OPUS_MODEL \
@@ -69,15 +67,10 @@ teardown() {
     [ "$backup_count" -ge 1 ]
 }
 
-@test "write_settings uses default model when AAB_CLAUDE_CODE_MODEL unset" {
+@test "write_settings uses default model when first-party model unset" {
     write_settings
     [ -f "$SETTINGS_FILE" ]
     python3 -c "import json; d=json.load(open('$SETTINGS_FILE')); assert d['model']=='$DEFAULT_CLAUDE_CODE_MODEL', d['model']"
-}
-
-@test "write_settings honors AAB_CLAUDE_CODE_MODEL override" {
-    AAB_CLAUDE_CODE_MODEL="claude-sonnet-4-6" write_settings
-    python3 -c "import json; d=json.load(open('$SETTINGS_FILE')); assert d['model']=='claude-sonnet-4-6', d['model']"
 }
 
 @test "write_settings honors first-party model override" {
@@ -204,19 +197,6 @@ PY
     done
 }
 
-@test "update_bashrc honors per-tier AAB_CLAUDE_CODE_*_MODEL overrides" {
-    AAB_CLAUDE_CODE_HAIKU_MODEL="claude-haiku-9-9" \
-        AAB_CLAUDE_CODE_SONNET_MODEL="claude-sonnet-9-9" \
-        AAB_CLAUDE_CODE_OPUS_MODEL="claude-opus-9-9" \
-        update_bashrc
-    grep -q "ANTHROPIC_DEFAULT_HAIKU_MODEL=claude-haiku-9-9"   "$BASHRC"
-    grep -q "ANTHROPIC_DEFAULT_SONNET_MODEL=claude-sonnet-9-9" "$BASHRC"
-    grep -q "ANTHROPIC_DEFAULT_OPUS_MODEL=claude-opus-9-9"     "$BASHRC"
-    # The defaults are gone.
-    ! grep -q "claude-haiku-4-5"  "$BASHRC"
-    ! grep -q "claude-sonnet-4-6" "$BASHRC"
-}
-
 @test "update_bashrc uses explicit first-party and third-party model vars" {
     AAB_CLAUDE_CODE_FIRST_PARTY_HAIKU_MODEL="claude-haiku-first" \
         AAB_CLAUDE_CODE_FIRST_PARTY_SONNET_MODEL="claude-sonnet-first" \
@@ -247,24 +227,6 @@ PY
     [ "$ANTHROPIC_DEFAULT_HAIKU_MODEL"  = "aws/anthropic/claude-haiku-4-5-v1" ]
     [ "$ANTHROPIC_DEFAULT_SONNET_MODEL" = "aws/anthropic/bedrock-claude-sonnet-4-6" ]
     [ "$ANTHROPIC_DEFAULT_OPUS_MODEL"   = "aws/anthropic/bedrock-claude-opus-4-7" ]
-}
-
-@test "update_bashrc old per-tier model vars remain third-party fallbacks" {
-    AAB_CLAUDE_CODE_INFERENCE_PROVIDER="third-party" \
-        AAB_CLAUDE_CODE_HAIKU_MODEL="claude-haiku-compat" \
-        AAB_CLAUDE_CODE_SONNET_MODEL="claude-sonnet-compat" \
-        AAB_CLAUDE_CODE_OPUS_MODEL="claude-opus-compat" \
-        update_bashrc
-    # Source the bashrc and confirm every tier resolves to the compatibility
-    # fallback value.
-    # shellcheck disable=SC1090
-    ANTHROPIC_DEFAULT_HAIKU_MODEL="" \
-        ANTHROPIC_DEFAULT_SONNET_MODEL="" \
-        ANTHROPIC_DEFAULT_OPUS_MODEL="" \
-        . "$BASHRC"
-    [ "$ANTHROPIC_DEFAULT_HAIKU_MODEL"  = "claude-haiku-compat" ]
-    [ "$ANTHROPIC_DEFAULT_SONNET_MODEL" = "claude-sonnet-compat" ]
-    [ "$ANTHROPIC_DEFAULT_OPUS_MODEL"   = "claude-opus-compat" ]
 }
 
 @test "sourcing bootstrap.bash does NOT execute main" {
@@ -711,7 +673,7 @@ _etc_env_sandbox() {
 @test "update_etc_environment writes managed block with both markers (anthropic provider)" {
     _etc_env_sandbox
     AAB_CLAUDE_CODE_INFERENCE_PROVIDER="anthropic" \
-    AAB_CLAUDE_CODE_MODEL="claude-opus-4-7" \
+    AAB_CLAUDE_CODE_FIRST_PARTY_MODEL="claude-opus-4-7" \
     ANTHROPIC_API_KEY="sk-ant-test-key" \
     GH_TOKEN="ghp_etc_env_test" \
         update_etc_environment
@@ -767,8 +729,8 @@ _etc_env_sandbox() {
 
 @test "update_etc_environment is idempotent (single managed block after two runs)" {
     _etc_env_sandbox
-    AAB_CLAUDE_CODE_MODEL="claude-opus-4-7" GH_TOKEN="ghp_idem" update_etc_environment
-    AAB_CLAUDE_CODE_MODEL="claude-opus-4-7" GH_TOKEN="ghp_idem" update_etc_environment
+    AAB_CLAUDE_CODE_FIRST_PARTY_MODEL="claude-opus-4-7" GH_TOKEN="ghp_idem" update_etc_environment
+    AAB_CLAUDE_CODE_FIRST_PARTY_MODEL="claude-opus-4-7" GH_TOKEN="ghp_idem" update_etc_environment
 
     local begin_count end_count
     begin_count=$(grep -cF "$ETC_ENV_MARKER_BEGIN" "$ETC_ENV")
@@ -783,7 +745,7 @@ _etc_env_sandbox() {
 PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 LC_ALL="C.UTF-8"
 EOF
-    AAB_CLAUDE_CODE_MODEL="claude-opus-4-7" GH_TOKEN="ghp_keep" update_etc_environment
+    AAB_CLAUDE_CODE_FIRST_PARTY_MODEL="claude-opus-4-7" GH_TOKEN="ghp_keep" update_etc_environment
 
     # Pre-existing entries survive.
     grep -q '^PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"$' "$ETC_ENV"
@@ -811,7 +773,7 @@ EOF
 
 @test "update_etc_environment file mode is 0644" {
     _etc_env_sandbox
-    AAB_CLAUDE_CODE_MODEL="claude-opus-4-7" update_etc_environment
+    AAB_CLAUDE_CODE_FIRST_PARTY_MODEL="claude-opus-4-7" update_etc_environment
     [ "$(stat -c '%a' "$ETC_ENV")" = "644" ]
 }
 
@@ -821,7 +783,7 @@ EOF
     # without a stale `ANTHROPIC_API_KEY=` line — re-runs match the
     # current env.
     AAB_CLAUDE_CODE_INFERENCE_PROVIDER="anthropic" \
-    AAB_CLAUDE_CODE_MODEL="claude-opus-4-7" update_etc_environment
+    AAB_CLAUDE_CODE_FIRST_PARTY_MODEL="claude-opus-4-7" update_etc_environment
 
     grep -qF "$ETC_ENV_MARKER_BEGIN" "$ETC_ENV"
     grep -q  '^ANTHROPIC_MODEL="claude-opus-4-7"$' "$ETC_ENV"
@@ -830,7 +792,7 @@ EOF
 
 @test "update_etc_environment defaults to anthropic provider when AAB_CLAUDE_CODE_INFERENCE_PROVIDER unset" {
     _etc_env_sandbox
-    AAB_CLAUDE_CODE_MODEL="claude-opus-4-7" update_etc_environment
+    AAB_CLAUDE_CODE_FIRST_PARTY_MODEL="claude-opus-4-7" update_etc_environment
     grep -q '^AAB_CLAUDE_CODE_INFERENCE_PROVIDER="anthropic"$' "$ETC_ENV"
 }
 
@@ -844,27 +806,27 @@ EOF
 
 @test "load_config_file populates unset env vars from KEY=VALUE lines" {
     cat > "$TEST_HOME/aab.conf" <<'EOF'
-AAB_CLAUDE_CODE_MODEL=claude-sonnet-4-6
+AAB_CLAUDE_CODE_FIRST_PARTY_MODEL=claude-sonnet-4-6
 AAB_CLAUDE_CODE_INFERENCE_PROVIDER=third-party
 GIT_AUTHOR_NAME="Alice Example"
 GIT_AUTHOR_EMAIL=alice@example.com
 EOF
     load_config_file "$TEST_HOME/aab.conf"
-    [ "$AAB_CLAUDE_CODE_MODEL" = "claude-sonnet-4-6" ]
+    [ "$AAB_CLAUDE_CODE_FIRST_PARTY_MODEL" = "claude-sonnet-4-6" ]
     [ "$AAB_CLAUDE_CODE_INFERENCE_PROVIDER" = "third-party" ]
     [ "$GIT_AUTHOR_NAME" = "Alice Example" ]
     [ "$GIT_AUTHOR_EMAIL" = "alice@example.com" ]
 }
 
 @test "load_config_file: env var already set in the shell WINS over the file" {
-    export AAB_CLAUDE_CODE_MODEL="claude-opus-4-7"
+    export AAB_CLAUDE_CODE_FIRST_PARTY_MODEL="claude-opus-4-7"
     cat > "$TEST_HOME/aab.conf" <<'EOF'
-AAB_CLAUDE_CODE_MODEL=claude-sonnet-4-6
+AAB_CLAUDE_CODE_FIRST_PARTY_MODEL=claude-sonnet-4-6
 GIT_AUTHOR_NAME="Alice Example"
 EOF
     load_config_file "$TEST_HOME/aab.conf"
     # Env-set value preserved.
-    [ "$AAB_CLAUDE_CODE_MODEL" = "claude-opus-4-7" ]
+    [ "$AAB_CLAUDE_CODE_FIRST_PARTY_MODEL" = "claude-opus-4-7" ]
     # File-only value still loaded.
     [ "$GIT_AUTHOR_NAME" = "Alice Example" ]
 }
@@ -881,12 +843,12 @@ EOF
 
 @test "load_config_file handles double- and single-quoted values, and leading 'export '" {
     cat > "$TEST_HOME/aab.conf" <<'EOF'
-AAB_CLAUDE_CODE_MODEL="claude-sonnet-4-6"
+AAB_CLAUDE_CODE_FIRST_PARTY_MODEL="claude-sonnet-4-6"
 GIT_AUTHOR_NAME='Alice Example'
 export GH_TOKEN=ghp_abc123
 EOF
     load_config_file "$TEST_HOME/aab.conf"
-    [ "$AAB_CLAUDE_CODE_MODEL" = "claude-sonnet-4-6" ]
+    [ "$AAB_CLAUDE_CODE_FIRST_PARTY_MODEL" = "claude-sonnet-4-6" ]
     [ "$GIT_AUTHOR_NAME" = "Alice Example" ]
     [ "$GH_TOKEN" = "ghp_abc123" ]
 }
@@ -904,7 +866,7 @@ EOF
 # comment at top
 
 # another comment
-AAB_CLAUDE_CODE_MODEL=claude-opus-4-7  # trailing comment
+AAB_CLAUDE_CODE_FIRST_PARTY_MODEL=claude-opus-4-7  # trailing comment
 
 EOF
     run load_config_file "$TEST_HOME/aab.conf"
@@ -912,18 +874,18 @@ EOF
 
     # Verify the one real key actually landed (re-run in-process).
     load_config_file "$TEST_HOME/aab.conf"
-    [ "$AAB_CLAUDE_CODE_MODEL" = "claude-opus-4-7" ]
+    [ "$AAB_CLAUDE_CODE_FIRST_PARTY_MODEL" = "claude-opus-4-7" ]
 }
 
 @test "load_config_file expands \${VAR:-default} parameter expansions" {
     # bash sourcing means the file has access to the live shell — defaults,
     # parameter expansion, command substitution all work.
     cat > "$TEST_HOME/aab.conf" <<'EOF'
-AAB_CLAUDE_CODE_MODEL="${AAB_CLAUDE_CODE_MODEL:-claude-haiku-4-5}"
+AAB_CLAUDE_CODE_FIRST_PARTY_MODEL="${AAB_CLAUDE_CODE_FIRST_PARTY_MODEL:-claude-haiku-4-5}"
 GIT_AUTHOR_NAME="Default $(echo Alice)"
 EOF
     load_config_file "$TEST_HOME/aab.conf"
-    [ "$AAB_CLAUDE_CODE_MODEL" = "claude-haiku-4-5" ]
+    [ "$AAB_CLAUDE_CODE_FIRST_PARTY_MODEL" = "claude-haiku-4-5" ]
     [ "$GIT_AUTHOR_NAME" = "Default Alice" ]
 }
 
@@ -938,7 +900,7 @@ EOF
     # that re-enables `set -euo pipefail`.
     cat > "$TEST_HOME/aab.conf" <<'EOF'
 this-line-has-no-equals
-AAB_CLAUDE_CODE_MODEL=claude-opus-4-7
+AAB_CLAUDE_CODE_FIRST_PARTY_MODEL=claude-opus-4-7
 EOF
     run bash -c "
         set -euo pipefail
@@ -958,20 +920,20 @@ EOF
 
 @test "load_config_stdin reads KEY=VALUE pairs piped on stdin" {
     load_config_stdin <<'EOF'
-AAB_CLAUDE_CODE_MODEL=claude-sonnet-4-6
+AAB_CLAUDE_CODE_FIRST_PARTY_MODEL=claude-sonnet-4-6
 GIT_AUTHOR_NAME="Alice Example"
 EOF
-    [ "$AAB_CLAUDE_CODE_MODEL" = "claude-sonnet-4-6" ]
+    [ "$AAB_CLAUDE_CODE_FIRST_PARTY_MODEL" = "claude-sonnet-4-6" ]
     [ "$GIT_AUTHOR_NAME" = "Alice Example" ]
 }
 
 @test "load_config_stdin: env beats stdin" {
-    export AAB_CLAUDE_CODE_MODEL="claude-opus-4-7"
+    export AAB_CLAUDE_CODE_FIRST_PARTY_MODEL="claude-opus-4-7"
     load_config_stdin <<'EOF'
-AAB_CLAUDE_CODE_MODEL=claude-sonnet-4-6
+AAB_CLAUDE_CODE_FIRST_PARTY_MODEL=claude-sonnet-4-6
 GIT_AUTHOR_NAME=Alice
 EOF
-    [ "$AAB_CLAUDE_CODE_MODEL" = "claude-opus-4-7" ]
+    [ "$AAB_CLAUDE_CODE_FIRST_PARTY_MODEL" = "claude-opus-4-7" ]
     [ "$GIT_AUTHOR_NAME" = "Alice" ]
 }
 
