@@ -90,6 +90,15 @@
 #                       Fully-qualified third-party gateway opus-tier model
 #                       ID. Exported verbatim as ANTHROPIC_DEFAULT_OPUS_MODEL
 #                       in the third-party branch. Defaults to claude-opus-4-7.
+#   AAB_CLAUDE_CODE_PLUGINS_FILE
+#                       Path to a local claude_code_plugins.txt listing
+#                       plugin marketplaces to install. Read directly when
+#                       set and the file exists; overrides
+#                       AAB_CLAUDE_CODE_PLUGINS_URL.
+#   AAB_CLAUDE_CODE_PLUGINS_URL
+#                       URL to fetch claude_code_plugins.txt from when no
+#                       local file is set. Defaults to the canonical file
+#                       on main of this repo.
 #   AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY
 #                       Anthropic first-party API key. Last 20 characters are
 #                       pre-approved in ~/.claude.json's
@@ -135,15 +144,6 @@
 #                       user.signingkey=~/.ssh/id_aab_signing.pub,
 #                       commit.gpgsign=true, tag.gpgsign=true. Does NOT
 #                       touch ~/.ssh/config.
-#   AAB_CLAUDE_CODE_PLUGINS_FILE
-#                       Path to a local claude_code_plugins.txt listing
-#                       plugin marketplaces to install. Read directly when
-#                       set and the file exists; overrides
-#                       AAB_CLAUDE_CODE_PLUGINS_URL.
-#   AAB_CLAUDE_CODE_PLUGINS_URL
-#                       URL to fetch claude_code_plugins.txt from when no
-#                       local file is set. Defaults to the canonical file
-#                       on main of this repo.
 #
 # Can be run from a local checkout or piped via `curl ... | bash`. Safe to
 # re-run: existing settings.json and .claude.json are backed up before
@@ -196,6 +196,7 @@ DEFAULT_CLAUDE_CODE_MODEL="claude-opus-4-7"
 DEFAULT_CLAUDE_CODE_HAIKU_MODEL="claude-haiku-4-5"
 DEFAULT_CLAUDE_CODE_SONNET_MODEL="claude-sonnet-4-6"
 DEFAULT_CLAUDE_CODE_OPUS_MODEL="claude-opus-4-7"
+PLUGINS_DEFAULT_URL="https://raw.githubusercontent.com/brycelelbach/autonomous-agent-bootstrap/main/claude_code_plugins.txt"
 
 log() { printf '[bootstrap] %s\n' "$*"; }
 warn() { printf '[bootstrap] WARN: %s\n' "$*" >&2; }
@@ -573,7 +574,6 @@ install_signing_ssh_key() {
 # set to an existing path, otherwise fetched from
 # $AAB_CLAUDE_CODE_PLUGINS_URL (defaults to main@autonomous-agent-bootstrap).
 # ---------------------------------------------------------------------------
-PLUGINS_DEFAULT_URL="https://raw.githubusercontent.com/brycelelbach/autonomous-agent-bootstrap/main/claude_code_plugins.txt"
 install_claude_code_plugins() {
     command -v python3 >/dev/null 2>&1 || { warn "python3 required for plugin install; skipping."; return; }
     local plugins_file="${AAB_CLAUDE_CODE_PLUGINS_FILE:-}"
