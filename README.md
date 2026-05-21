@@ -10,7 +10,7 @@ A single idempotent bash script that turns a fresh Linux host into a ready-to-us
    - First-party model selected via `AAB_CLAUDE_CODE_FIRST_PARTY_MODEL` (defaults to `claude-opus-4-7`), third-party model selected via `AAB_CLAUDE_CODE_THIRD_PARTY_MODEL`, max effort
    - Inference provider selectable at runtime — either Anthropic's first-party API or any Anthropic-compatible third-party gateway. Switch with `claude_code_switch_inference_provider anthropic|third-party`.
    - Onboarding wizard skipped (no theme / color-scheme prompt on first launch)
-   - `ANTHROPIC_API_KEY` pre-approved if provided (no first-run approval prompt)
+   - `AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY` pre-approved if provided (no first-run approval prompt)
    - `claude` aliased to `claude --dangerously-skip-permissions` in interactive shells
 2. **`gh` CLI** — latest release from the official `cli.github.com` apt repo (the distro-shipped `gh` predates `gh auth token` / `gh auth git-credential`).
 3. **git** — `user.name` / `user.email` set from env, and `gh` registered as the `github.com` credential helper so `git clone` / `git push` reuse the gh-stored token with no interactive prompt. If `GIT_SIGNING_PRIVATE_KEY_B64` is set, git is also configured to sign every commit and tag with that key (see [SSH keys](#ssh-keys)).
@@ -53,9 +53,9 @@ export AAB_CLAUDE_CODE_THIRD_PARTY_MODEL="aws/anthropic/bedrock-claude-opus-4-7"
 export AAB_CLAUDE_CODE_THIRD_PARTY_HAIKU_MODEL="aws/anthropic/claude-haiku-4-5-v1"
 export AAB_CLAUDE_CODE_THIRD_PARTY_SONNET_MODEL="aws/anthropic/bedrock-claude-sonnet-4-6"
 export AAB_CLAUDE_CODE_THIRD_PARTY_OPUS_MODEL="aws/anthropic/bedrock-claude-opus-4-7"
-export ANTHROPIC_API_KEY="..."
-export ANTHROPIC_BASE_URL="..."
-export ANTHROPIC_AUTH_TOKEN="..."
+export AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY="..."
+export AAB_CLAUDE_CODE_THIRD_PARTY_BASE_URL="..."
+export AAB_CLAUDE_CODE_THIRD_PARTY_AUTH_TOKEN="..."
 export GH_TOKEN="..."
 export GIT_AUTHOR_NAME="Your Name"
 export GIT_AUTHOR_EMAIL="youremail@gmail.com"
@@ -69,7 +69,7 @@ claude -p "Say hello from Claude Code"
 ```bash
 export AAB_CLAUDE_CODE_INFERENCE_PROVIDER="anthropic"
 export AAB_CLAUDE_CODE_FIRST_PARTY_MODEL="claude-opus-4-7"
-export ANTHROPIC_API_KEY="..."
+export AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY="..."
 export GH_TOKEN="..."
 export GIT_AUTHOR_NAME="Your Name"
 export GIT_AUTHOR_EMAIL="youremail@gmail.com"
@@ -86,8 +86,8 @@ export AAB_CLAUDE_CODE_THIRD_PARTY_MODEL="aws/anthropic/bedrock-claude-opus-4-7"
 export AAB_CLAUDE_CODE_THIRD_PARTY_HAIKU_MODEL="aws/anthropic/claude-haiku-4-5-v1"
 export AAB_CLAUDE_CODE_THIRD_PARTY_SONNET_MODEL="aws/anthropic/bedrock-claude-sonnet-4-6"
 export AAB_CLAUDE_CODE_THIRD_PARTY_OPUS_MODEL="aws/anthropic/bedrock-claude-opus-4-7"
-export ANTHROPIC_BASE_URL="..."
-export ANTHROPIC_AUTH_TOKEN="..."
+export AAB_CLAUDE_CODE_THIRD_PARTY_BASE_URL="..."
+export AAB_CLAUDE_CODE_THIRD_PARTY_AUTH_TOKEN="..."
 export GH_TOKEN="..."
 export GIT_AUTHOR_NAME="Your Name"
 export GIT_AUTHOR_EMAIL="youremail@gmail.com"
@@ -108,7 +108,7 @@ Instead of long `export` chains, drop the same `KEY=VALUE` pairs in a file and p
 cat > /tmp/aab.conf <<'CONF'
 AAB_CLAUDE_CODE_INFERENCE_PROVIDER=anthropic
 AAB_CLAUDE_CODE_FIRST_PARTY_MODEL=claude-opus-4-7
-ANTHROPIC_API_KEY=...
+AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY=...
 GH_TOKEN=...
 GIT_AUTHOR_NAME=Your Name
 GIT_AUTHOR_EMAIL=you@example.com
@@ -120,7 +120,7 @@ bash bootstrap.bash /tmp/aab.conf
 # From a local checkout, by stdin (heredoc, redirect, or any non-TTY pipe):
 bash bootstrap.bash <<'CONF'
 AAB_CLAUDE_CODE_FIRST_PARTY_MODEL=claude-opus-4-7
-ANTHROPIC_API_KEY=...
+AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY=...
 GH_TOKEN=...
 CONF
 
@@ -134,7 +134,7 @@ curl -fsSL https://raw.githubusercontent.com/brycelelbach/autonomous-agent-boots
 # don't reach the script:
 bash <(curl -fsSL https://raw.githubusercontent.com/brycelelbach/autonomous-agent-bootstrap/main/bootstrap.bash) <<'CONF'
 AAB_CLAUDE_CODE_FIRST_PARTY_MODEL=claude-opus-4-7
-ANTHROPIC_API_KEY=...
+AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY=...
 GH_TOKEN=...
 CONF
 ```
@@ -187,9 +187,9 @@ All optional. Anything unset is simply skipped.
 | `AAB_CLAUDE_CODE_THIRD_PARTY_HAIKU_MODEL` | Fully-qualified third-party gateway haiku-tier model ID. Exported verbatim as `ANTHROPIC_DEFAULT_HAIKU_MODEL` in the third-party branch. Defaults to `claude-haiku-4-5`. |
 | `AAB_CLAUDE_CODE_THIRD_PARTY_SONNET_MODEL` | Fully-qualified third-party gateway sonnet-tier model ID. Exported verbatim as `ANTHROPIC_DEFAULT_SONNET_MODEL` in the third-party branch. Defaults to `claude-sonnet-4-6`. |
 | `AAB_CLAUDE_CODE_THIRD_PARTY_OPUS_MODEL` | Fully-qualified third-party gateway opus-tier model ID. Exported verbatim as `ANTHROPIC_DEFAULT_OPUS_MODEL` in the third-party branch. Defaults to `claude-opus-4-7`. |
-| `ANTHROPIC_API_KEY` | Last 20 characters written to `~/.claude.json` under `customApiKeyResponses.approved` so Claude Code doesn't prompt for approval. Also exported from the anthropic branch of the `~/.bashrc` managed block. |
-| `ANTHROPIC_BASE_URL` | Exported from the third-party branch. |
-| `ANTHROPIC_AUTH_TOKEN` | Exported from the third-party branch. The third-party branch also exports `CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS=1` so context-management beta headers aren't sent to gateways that reject them. |
+| `AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY` | Anthropic first-party API key. Last 20 characters are written to `~/.claude.json` under `customApiKeyResponses.approved` so Claude Code doesn't prompt for approval. Also exported as `ANTHROPIC_API_KEY` from the anthropic branch of the `~/.bashrc` managed block. |
+| `AAB_CLAUDE_CODE_THIRD_PARTY_BASE_URL` | Base URL for the Anthropic-compatible third-party gateway. Also exported as `ANTHROPIC_BASE_URL` from the third-party branch. |
+| `AAB_CLAUDE_CODE_THIRD_PARTY_AUTH_TOKEN` | Bearer token for the third-party gateway. Also exported as `ANTHROPIC_AUTH_TOKEN` from the third-party branch. The third-party branch also exports `CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS=1` so context-management beta headers aren't sent to gateways that reject them. |
 | `GH_TOKEN` | Exported from the `~/.bashrc` managed block. `gh` reads it from the environment directly, and since `gh auth git-credential` is registered as the `github.com` credential helper, `git clone` / `git push` reuse it automatically. |
 | `GIT_AUTHOR_NAME` | `git config --global user.name` |
 | `GIT_AUTHOR_EMAIL` | `git config --global user.email` |
@@ -296,7 +296,7 @@ You can upload the same public key under both types if you want a single blob to
 
 Safe to re-run. Each run matches the current environment:
 
-- The `~/.bashrc` managed block is replaced, not appended — so re-running **without** `ANTHROPIC_API_KEY` / `GH_TOKEN` set drops a previously-written export. If you want an export to persist across re-runs, keep the env var set when you re-run.
+- The `~/.bashrc` managed block is replaced, not appended — so re-running **without** `AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY` / `GH_TOKEN` set drops a previously-written export. If you want an export to persist across re-runs, keep the env var set when you re-run.
 - `settings.json` and `.claude.json` are backed up (timestamped `.bak`) before being rewritten.
 - `gh` and `claude` are skipped if already installed.
 - `git config --global` is only touched for variables that are set.
