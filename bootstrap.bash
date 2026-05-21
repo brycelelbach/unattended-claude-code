@@ -15,7 +15,7 @@
 #      plugins they declare in enabledPlugins. Claude Code picks these up
 #      on next launch with no prompt (user scope).
 #   4. Writes ~/.claude/settings.json with unattended-mode defaults
-#      (bypassPermissions, sandboxed, max effort, opus-4-7).
+#      (bypassPermissions, sandboxed, configured effort, opus-4-7).
 #   5. Pre-populates ~/.claude.json with hasCompletedOnboarding=true so the
 #      first `claude` launch skips the theme / color-scheme wizard, and —
 #      if AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY is set — pre-approves that
@@ -90,6 +90,11 @@
 #                       Fully-qualified third-party gateway opus-tier model
 #                       ID. Exported verbatim as ANTHROPIC_DEFAULT_OPUS_MODEL
 #                       in the third-party branch. Defaults to claude-opus-4-7.
+#   AAB_CLAUDE_CODE_EFFORT
+#                       Claude Code effort level. Written to
+#                       ~/.claude/settings.json's "effortLevel" field,
+#                       exported as CLAUDE_CODE_EFFORT_LEVEL, and defaults
+#                       to max.
 #   AAB_CLAUDE_CODE_PLUGINS_FILE
 #                       Path to a local claude_code_plugins.txt listing
 #                       plugin marketplaces to install. Read directly when
@@ -196,6 +201,7 @@ DEFAULT_CLAUDE_CODE_MODEL="claude-opus-4-7"
 DEFAULT_CLAUDE_CODE_HAIKU_MODEL="claude-haiku-4-5"
 DEFAULT_CLAUDE_CODE_SONNET_MODEL="claude-sonnet-4-6"
 DEFAULT_CLAUDE_CODE_OPUS_MODEL="claude-opus-4-7"
+DEFAULT_CLAUDE_CODE_EFFORT="max"
 PLUGINS_DEFAULT_URL="https://raw.githubusercontent.com/brycelelbach/autonomous-agent-bootstrap/main/claude_code_plugins.txt"
 
 log() { printf '[bootstrap] %s\n' "$*"; }
@@ -300,6 +306,7 @@ write_settings() {
         log "Backed up existing settings.json -> ${backup}."
     fi
     local model="${AAB_CLAUDE_CODE_FIRST_PARTY_MODEL:-$DEFAULT_CLAUDE_CODE_MODEL}"
+    local effort="${AAB_CLAUDE_CODE_EFFORT:-$DEFAULT_CLAUDE_CODE_EFFORT}"
     # Belt-and-suspenders: bypassPermissions skips prompts for writes
     # under .claude/ already, but the explicit allow list also keeps
     # config / memory / agent / skill edits unprompted in 'default' or
@@ -307,7 +314,7 @@ write_settings() {
     cat > "${SETTINGS_FILE}" <<JSON
 {
   "model": "${model}",
-  "effortLevel": "max",
+  "effortLevel": "${effort}",
   "permissions": {
     "defaultMode": "bypassPermissions",
     "allow": [
@@ -322,11 +329,11 @@ write_settings() {
   "skipDangerousModePermissionPrompt": true,
   "env": {
     "CLAUDE_CODE_SANDBOXED": "1",
-    "CLAUDE_CODE_EFFORT_LEVEL": "max"
+    "CLAUDE_CODE_EFFORT_LEVEL": "${effort}"
   }
 }
 JSON
-    log "Wrote ${SETTINGS_FILE} (model=${model})."
+    log "Wrote ${SETTINGS_FILE} (model=${model}, effort=${effort})."
 }
 
 # ---------------------------------------------------------------------------
@@ -791,6 +798,7 @@ update_bashrc() {
     local third_party_haiku_model="${AAB_CLAUDE_CODE_THIRD_PARTY_HAIKU_MODEL:-$DEFAULT_CLAUDE_CODE_HAIKU_MODEL}"
     local third_party_sonnet_model="${AAB_CLAUDE_CODE_THIRD_PARTY_SONNET_MODEL:-$DEFAULT_CLAUDE_CODE_SONNET_MODEL}"
     local third_party_opus_model="${AAB_CLAUDE_CODE_THIRD_PARTY_OPUS_MODEL:-$DEFAULT_CLAUDE_CODE_OPUS_MODEL}"
+    local effort="${AAB_CLAUDE_CODE_EFFORT:-$DEFAULT_CLAUDE_CODE_EFFORT}"
     local first_party_api_key="${AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY:-}"
     local third_party_base_url="${AAB_CLAUDE_CODE_THIRD_PARTY_BASE_URL:-}"
     local third_party_auth_token="${AAB_CLAUDE_CODE_THIRD_PARTY_AUTH_TOKEN:-}"
@@ -812,6 +820,7 @@ update_bashrc() {
             'export CLAUDE_CODE_SANDBOXED=1' \
             'export DEBUG_SDK=1' \
             "alias claude='claude --dangerously-skip-permissions'"
+        printf 'export CLAUDE_CODE_EFFORT_LEVEL=%q\n' "$effort"
         if [ -n "$github_token" ]; then
             printf 'export AAB_GH_TOKEN=%q\n' "$github_token"
             printf 'export GH_TOKEN=%q\n' "$github_token"
@@ -883,7 +892,7 @@ update_bashrc() {
             '}'
         printf '%s\n' "${BASHRC_MARKER_END}"
     } >> "${BASHRC}"
-    log "Wrote autonomous-agent-bootstrap block to ${BASHRC} (provider=${provider}, model=${model}, haiku=${haiku_model}, sonnet=${sonnet_model}, opus=${opus_model})."
+    log "Wrote autonomous-agent-bootstrap block to ${BASHRC} (provider=${provider}, model=${model}, haiku=${haiku_model}, sonnet=${sonnet_model}, opus=${opus_model}, effort=${effort})."
 }
 
 # ---------------------------------------------------------------------------
@@ -933,6 +942,7 @@ update_etc_environment() {
     local third_party_haiku_model="${AAB_CLAUDE_CODE_THIRD_PARTY_HAIKU_MODEL:-$DEFAULT_CLAUDE_CODE_HAIKU_MODEL}"
     local third_party_sonnet_model="${AAB_CLAUDE_CODE_THIRD_PARTY_SONNET_MODEL:-$DEFAULT_CLAUDE_CODE_SONNET_MODEL}"
     local third_party_opus_model="${AAB_CLAUDE_CODE_THIRD_PARTY_OPUS_MODEL:-$DEFAULT_CLAUDE_CODE_OPUS_MODEL}"
+    local effort="${AAB_CLAUDE_CODE_EFFORT:-$DEFAULT_CLAUDE_CODE_EFFORT}"
     local first_party_api_key="${AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY:-}"
     local third_party_base_url="${AAB_CLAUDE_CODE_THIRD_PARTY_BASE_URL:-}"
     local third_party_auth_token="${AAB_CLAUDE_CODE_THIRD_PARTY_AUTH_TOKEN:-}"
@@ -955,6 +965,7 @@ update_etc_environment() {
         printf '\n%s\n' "${ETC_ENV_MARKER_BEGIN}"
         printf 'AAB_CLAUDE_CODE_INFERENCE_PROVIDER="%s"\n' "$provider"
         printf 'CLAUDE_CODE_SANDBOXED="1"\n'
+        printf 'CLAUDE_CODE_EFFORT_LEVEL="%s"\n' "$effort"
         printf 'DEBUG_SDK="1"\n'
         if [ -n "$github_token" ]; then
             printf 'AAB_GH_TOKEN="%s"\n' "$github_token"

@@ -24,6 +24,7 @@ assert d["permissions"]["defaultMode"] == "bypassPermissions", d
 assert d["skipDangerousModePermissionPrompt"] is True, d
 assert d["env"]["CLAUDE_CODE_SANDBOXED"] == "1", d
 assert d["effortLevel"] == "max", d
+assert d["env"]["CLAUDE_CODE_EFFORT_LEVEL"] == "max", d
 assert d["model"].startswith("claude-"), d
 allow = d["permissions"]["allow"]
 for op in ("Edit", "Write", "Read"):
@@ -85,6 +86,12 @@ grep -q 'export DEBUG_SDK=1' "$BASHRC" \
     || fail "DEBUG_SDK=1 export missing from bashrc managed block."
 pass "DEBUG_SDK=1 exported (claude debug logging on)."
 
+# 6d. CLAUDE_CODE_EFFORT_LEVEL mirrors AAB_CLAUDE_CODE_EFFORT, defaulting
+# to max so non-interactive launches keep the same effort setting.
+grep -q 'export CLAUDE_CODE_EFFORT_LEVEL=max' "$BASHRC" \
+    || fail "CLAUDE_CODE_EFFORT_LEVEL=max export missing from bashrc managed block."
+pass "CLAUDE_CODE_EFFORT_LEVEL=max exported."
+
 # 7. The bashrc block sources cleanly.
 bash -n "$BASHRC" || fail "bashrc has syntax errors."
 pass "bashrc parses cleanly."
@@ -128,6 +135,8 @@ grep -q '^AAB_CLAUDE_CODE_INFERENCE_PROVIDER=' "$ETC_ENV" \
     || fail "AAB_CLAUDE_CODE_INFERENCE_PROVIDER missing from $ETC_ENV."
 grep -q '^ANTHROPIC_MODEL=' "$ETC_ENV" \
     || fail "ANTHROPIC_MODEL missing from $ETC_ENV."
+grep -q '^CLAUDE_CODE_EFFORT_LEVEL="max"$' "$ETC_ENV" \
+    || fail "CLAUDE_CODE_EFFORT_LEVEL missing from $ETC_ENV."
 pass "$ETC_ENV managed block present exactly once with provider / model state."
 
 echo "All e2e assertions passed."
