@@ -22,11 +22,13 @@ setup() {
           AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY \
           AAB_CLAUDE_CODE_THIRD_PARTY_BASE_URL \
           AAB_CLAUDE_CODE_THIRD_PARTY_AUTH_TOKEN \
+          AAB_CODEX_FIRST_PARTY_MODEL AAB_CODEX_REASONING_EFFORT \
+          AAB_CODEX_FIRST_PARTY_API_KEY AAB_SKIP_INFERENCE_SMOKE_TESTS \
           AAB_GH_TOKEN AAB_GIT_AUTHOR_NAME AAB_GIT_AUTHOR_EMAIL \
           AAB_GH_AUTH_SSH_PRIVATE_KEY_B64 AAB_GIT_SIGNING_PRIVATE_KEY_B64 \
           ANTHROPIC_API_KEY ANTHROPIC_BASE_URL ANTHROPIC_AUTH_TOKEN \
-          GH_TOKEN \
-          AAB_CLAUDE_CODE_PLUGINS_FILE AAB_CLAUDE_CODE_PLUGINS_URL
+          OPENAI_API_KEY GH_TOKEN GITHUB_TOKEN \
+          AAB_AGENT_PLUGINS_FILE AAB_AGENT_PLUGINS_URL
     # shellcheck disable=SC1091
     source "$REPO_ROOT/bootstrap.bash"
 }
@@ -137,6 +139,256 @@ PY
     [ "$backup_count" -ge 1 ]
 }
 
+@test "write_codex_config writes unattended yolo-mode defaults" {
+    write_codex_config
+    [ -f "$CODEX_CONFIG" ]
+    grep -q '^model = "gpt-5.5"$' "$CODEX_CONFIG"
+    grep -q '^model_reasoning_effort = "xhigh"$' "$CODEX_CONFIG"
+    grep -q '^approval_policy = "never"$' "$CODEX_CONFIG"
+    grep -q '^sandbox_mode = "danger-full-access"$' "$CODEX_CONFIG"
+    grep -q '^web_search = "live"$' "$CODEX_CONFIG"
+    grep -q '^hide_full_access_warning = true$' "$CODEX_CONFIG"
+    grep -q '^inherit = "all"$' "$CODEX_CONFIG"
+    grep -q '^ignore_default_excludes = true$' "$CODEX_CONFIG"
+    grep -qF "[projects.\"$HOME\"]" "$CODEX_CONFIG"
+    grep -q '^trust_level = "trusted"$' "$CODEX_CONFIG"
+}
+
+@test "write_codex_config honors model and reasoning-effort overrides" {
+    AAB_CODEX_FIRST_PARTY_MODEL="gpt-5.4" \
+        AAB_CODEX_REASONING_EFFORT="high" \
+        write_codex_config
+    grep -q '^model = "gpt-5.4"$' "$CODEX_CONFIG"
+    grep -q '^model_reasoning_effort = "high"$' "$CODEX_CONFIG"
+}
+
+@test "write_codex_config defaults invalid reasoning effort back to xhigh" {
+    AAB_CODEX_REASONING_EFFORT="maximum" run write_codex_config
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"AAB_CODEX_REASONING_EFFORT='maximum'"* ]]
+    grep -q '^model_reasoning_effort = "xhigh"$' "$CODEX_CONFIG"
+}
+
+@test "write_codex_config backs up pre-existing config.toml" {
+    mkdir -p "$CODEX_DIR"
+    echo 'model = "old"' > "$CODEX_CONFIG"
+    write_codex_config
+    local backup_count
+    backup_count=$(find "$CODEX_DIR" -maxdepth 1 -name 'config.toml.bak.*' | wc -l)
+    [ "$backup_count" -ge 1 ]
+}
+
+@test "write_codex_config preserves Codex plugin marketplace tables" {
+    mkdir -p "$CODEX_DIR"
+    cat > "$CODEX_CONFIG" <<'TOML'
+model = "old"
+
+[marketplaces.robobryce-agitentic]
+last_updated = "2026-05-21T00:00:00Z"
+source_type = "git"
+source = "https://github.com/brycelelbach/agitentic.git"
+
+[plugins."agitentic@robobryce-agitentic"]
+enabled = true
+TOML
+
+    write_codex_config
+
+    grep -q '^\[marketplaces.robobryce-agitentic\]$' "$CODEX_CONFIG"
+    grep -q '^source = "https://github.com/brycelelbach/agitentic.git"$' "$CODEX_CONFIG"
+    grep -q '^\[plugins."agitentic@robobryce-agitentic"\]$' "$CODEX_CONFIG"
+    grep -q '^enabled = true$' "$CODEX_CONFIG"
+    grep -q '^approval_policy = "never"$' "$CODEX_CONFIG"
+}
+
+setup_fake_codex_installer() {
+    export FAKE_CODEX_INSTALLER_BIN="$TEST_HOME/fake-codex-installer-bin"
+    mkdir -p "$FAKE_CODEX_INSTALLER_BIN"
+    cat > "$FAKE_CODEX_INSTALLER_BIN/curl" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$*" >> "$TEST_HOME/codex-installer-curl-invocations"
+
+output=""
+config=""
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        -o|--output)
+            output="$2"
+            shift 2
+            ;;
+        --config)
+            config="$2"
+            shift 2
+            ;;
+        *)
+            shift
+            ;;
+    esac
+done
+
+if [ -n "$config" ]; then
+    cat "$config" >> "$TEST_HOME/codex-installer-curl-configs"
+fi
+
+if [ -n "$output" ]; then
+    cat > "$output" <<'INSTALLER'
+#!/usr/bin/env bash
+set -euo pipefail
+curl -fsSL https://api.github.com/repos/openai/codex/releases/latest >/dev/null
+curl -fsSL https://github.com/openai/codex/releases/download/rust-v0.133.0/codex.tar.gz >/dev/null
+INSTALLER
+    exit 0
+fi
+
+cat <<'INSTALLER'
+#!/usr/bin/env bash
+set -euo pipefail
+curl -fsSL https://api.github.com/repos/openai/codex/releases/latest >/dev/null
+curl -fsSL https://github.com/openai/codex/releases/download/rust-v0.133.0/codex.tar.gz >/dev/null
+INSTALLER
+SH
+    chmod +x "$FAKE_CODEX_INSTALLER_BIN/curl"
+    export PATH="$FAKE_CODEX_INSTALLER_BIN:$PATH"
+}
+
+@test "install_codex authenticates GitHub API calls when a GitHub token is available" {
+    setup_fake_codex_installer
+    GH_TOKEN="github-test-token" run install_codex
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Using GitHub authentication for Codex release metadata requests."* ]]
+    grep -Eq '^--config .+ https://api.github.com/repos/openai/codex/releases/latest$' "$TEST_HOME/codex-installer-curl-invocations"
+    grep -Fxq -- '-fsSL https://github.com/openai/codex/releases/download/rust-v0.133.0/codex.tar.gz' "$TEST_HOME/codex-installer-curl-invocations"
+    grep -Fq 'header = "Authorization: Bearer github-test-token"' "$TEST_HOME/codex-installer-curl-configs"
+}
+
+@test "install_codex leaves installer calls unauthenticated without a GitHub token" {
+    setup_fake_codex_installer
+    run install_codex
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"Using GitHub authentication for Codex release metadata requests."* ]]
+    ! grep -Fq -- '--config' "$TEST_HOME/codex-installer-curl-invocations"
+    [ ! -f "$TEST_HOME/codex-installer-curl-configs" ]
+}
+
+setup_fake_codex() {
+    export FAKE_CODEX_BIN="$TEST_HOME/fake-codex-bin"
+    mkdir -p "$FAKE_CODEX_BIN"
+    cat > "$FAKE_CODEX_BIN/codex" <<SH
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >> "$TEST_HOME/codex-invocations"
+stdin=\$(cat)
+printf '%s' "\$stdin" > "$TEST_HOME/codex-stdin"
+if [ "\${FAKE_CODEX_FAIL:-0}" = "1" ]; then
+    exit 42
+fi
+if [ "\$1" = "login" ] && [ "\${2:-}" = "--with-api-key" ]; then
+    mkdir -p "\$HOME/.codex"
+    printf '{"auth_mode":"apikey","OPENAI_API_KEY":"%s"}\n' "\$stdin" > "\$HOME/.codex/auth.json"
+    exit 0
+fi
+exit 1
+SH
+    chmod +x "$FAKE_CODEX_BIN/codex"
+    export PATH="$FAKE_CODEX_BIN:$PATH"
+}
+
+@test "configure_codex_auth is a no-op when AAB_CODEX_FIRST_PARTY_API_KEY is unset" {
+    setup_fake_codex
+    run configure_codex_auth
+    [ "$status" -eq 0 ]
+    [ ! -f "$TEST_HOME/codex-invocations" ]
+    [ ! -f "$HOME/.codex/auth.json" ]
+}
+
+@test "configure_codex_auth logs in with AAB_CODEX_FIRST_PARTY_API_KEY via stdin" {
+    setup_fake_codex
+    AAB_CODEX_FIRST_PARTY_API_KEY="codex-first-party-test-key" run configure_codex_auth
+    [ "$status" -eq 0 ]
+    grep -Fxq 'login --with-api-key' "$TEST_HOME/codex-invocations"
+    [ "$(cat "$TEST_HOME/codex-stdin")" = "codex-first-party-test-key" ]
+    python3 - <<PY
+import json
+d = json.load(open("$HOME/.codex/auth.json"))
+assert d["auth_mode"] == "apikey", d
+assert d["OPENAI_API_KEY"] == "codex-first-party-test-key", d
+PY
+    [[ "$output" != *"codex-first-party-test-key"* ]]
+}
+
+@test "configure_codex_auth fails when Codex API-key login fails" {
+    setup_fake_codex
+    export FAKE_CODEX_FAIL=1
+    AAB_CODEX_FIRST_PARTY_API_KEY="codex-first-party-test-key" run configure_codex_auth
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"codex login --with-api-key failed"* ]]
+    [[ "$output" != *"codex-first-party-test-key"* ]]
+}
+
+setup_fake_smoke_agents() {
+    export FAKE_SMOKE_BIN="$TEST_HOME/fake-smoke-bin"
+    mkdir -p "$FAKE_SMOKE_BIN"
+
+    cat > "$FAKE_SMOKE_BIN/claude" <<SH
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >> "$TEST_HOME/claude-smoke-invocations"
+if [ "\${FAKE_CLAUDE_SMOKE_FAIL:-0}" = "1" ]; then
+    exit 42
+fi
+exit 0
+SH
+    chmod +x "$FAKE_SMOKE_BIN/claude"
+
+    cat > "$FAKE_SMOKE_BIN/codex" <<SH
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >> "$TEST_HOME/codex-smoke-invocations"
+if [ "\${FAKE_CODEX_SMOKE_FAIL:-0}" = "1" ]; then
+    exit 43
+fi
+exit 0
+SH
+    chmod +x "$FAKE_SMOKE_BIN/codex"
+
+    export PATH="$FAKE_SMOKE_BIN:$PATH"
+}
+
+@test "run_inference_smoke_tests skips when AAB_SKIP_INFERENCE_SMOKE_TESTS is true" {
+    local empty_bin="$TEST_HOME/empty-bin"
+    mkdir -p "$empty_bin"
+    AAB_SKIP_INFERENCE_SMOKE_TESTS=1 PATH="$empty_bin" run run_inference_smoke_tests
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Skipping Claude Code and Codex inference smoke tests"* ]]
+}
+
+@test "run_inference_smoke_tests runs Claude Code and Codex hello-world prompts" {
+    setup_fake_smoke_agents
+    run run_inference_smoke_tests
+    [ "$status" -eq 0 ]
+    grep -Fxq -- '--dangerously-skip-permissions -p hello world' "$TEST_HOME/claude-smoke-invocations"
+    grep -Fxq -- 'exec --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check hello world' "$TEST_HOME/codex-smoke-invocations"
+    [[ "$output" == *"Claude Code inference smoke test passed."* ]]
+    [[ "$output" == *"Codex inference smoke test passed."* ]]
+}
+
+@test "run_inference_smoke_tests fails when Claude Code smoke fails" {
+    setup_fake_smoke_agents
+    export FAKE_CLAUDE_SMOKE_FAIL=1
+    run run_inference_smoke_tests
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"Claude Code inference smoke test failed."* ]]
+    [ ! -f "$TEST_HOME/codex-smoke-invocations" ]
+}
+
+@test "run_inference_smoke_tests fails when Codex smoke fails" {
+    setup_fake_smoke_agents
+    export FAKE_CODEX_SMOKE_FAIL=1
+    run run_inference_smoke_tests
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"Codex inference smoke test failed."* ]]
+    grep -Fxq -- '--dangerously-skip-permissions -p hello world' "$TEST_HOME/claude-smoke-invocations"
+    grep -Fxq -- 'exec --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check hello world' "$TEST_HOME/codex-smoke-invocations"
+}
+
 @test "skip_onboarding creates .claude.json with hasCompletedOnboarding=true" {
     skip_onboarding
     [ -f "$CLAUDE_JSON" ]
@@ -186,6 +438,17 @@ PY
     grep -q "$BASHRC_MARKER_END" "$BASHRC"
 }
 
+@test "update_bashrc aliases codex through yolo mode" {
+    update_bashrc
+    grep -q "alias codex='codex --dangerously-bypass-approvals-and-sandbox'" "$BASHRC"
+}
+
+@test "update_bashrc exports Codex first-party API key when set" {
+    AAB_CODEX_FIRST_PARTY_API_KEY="codex-first-party-test-key" update_bashrc
+    grep -q 'export AAB_CODEX_FIRST_PARTY_API_KEY=codex-first-party-test-key' "$BASHRC"
+    grep -q 'export OPENAI_API_KEY=codex-first-party-test-key' "$BASHRC"
+}
+
 @test "update_bashrc is idempotent (single managed block after two runs)" {
     update_bashrc
     update_bashrc
@@ -207,36 +470,32 @@ PY
     grep -qE "^export CLAUDE_CODE_EFFORT_LEVEL=('?\"?)high\\1?$" "$BASHRC"
 }
 
-@test "update_bashrc honors third-party provider selection" {
-    AAB_CLAUDE_CODE_INFERENCE_PROVIDER="third-party" update_bashrc
-    grep -q 'AAB_CLAUDE_CODE_INFERENCE_PROVIDER="third-party"' "$BASHRC"
-}
-
 @test "update_bashrc exports first-party API key under AAB and Claude runtime names" {
     AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY="sk-ant-test-key" update_bashrc
     grep -q 'export AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY=sk-ant-test-key' "$BASHRC"
     grep -q 'export ANTHROPIC_API_KEY=sk-ant-test-key' "$BASHRC"
-    grep -q 'unset AAB_CLAUDE_CODE_THIRD_PARTY_BASE_URL' "$BASHRC"
-    grep -q 'unset AAB_CLAUDE_CODE_THIRD_PARTY_AUTH_TOKEN' "$BASHRC"
 }
 
 @test "update_bashrc exports third-party credentials under AAB and Claude runtime names" {
     AAB_CLAUDE_CODE_INFERENCE_PROVIDER="third-party" \
-        AAB_CLAUDE_CODE_THIRD_PARTY_BASE_URL="https://gateway.example.com" \
-        AAB_CLAUDE_CODE_THIRD_PARTY_AUTH_TOKEN="bearer-token-xyz" \
+    AAB_CLAUDE_CODE_THIRD_PARTY_BASE_URL="https://gateway.example.com" \
+    AAB_CLAUDE_CODE_THIRD_PARTY_AUTH_TOKEN="bearer-token-xyz" \
         update_bashrc
     grep -q 'export AAB_CLAUDE_CODE_THIRD_PARTY_BASE_URL=https://gateway.example.com' "$BASHRC"
     grep -q 'export ANTHROPIC_BASE_URL=https://gateway.example.com' "$BASHRC"
     grep -q 'export AAB_CLAUDE_CODE_THIRD_PARTY_AUTH_TOKEN=bearer-token-xyz' "$BASHRC"
     grep -q 'export ANTHROPIC_AUTH_TOKEN=bearer-token-xyz' "$BASHRC"
-    grep -q 'unset AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY' "$BASHRC"
-    grep -q 'unset ANTHROPIC_API_KEY' "$BASHRC"
 }
 
 @test "update_bashrc exports GitHub token under AAB and gh runtime names" {
-    AAB_GH_TOKEN="ghp_bashrc_test" update_bashrc
-    grep -q 'export AAB_GH_TOKEN=ghp_bashrc_test' "$BASHRC"
-    grep -q 'export GH_TOKEN=ghp_bashrc_test' "$BASHRC"
+    AAB_GH_TOKEN="ghp_test_token" update_bashrc
+    grep -q 'export AAB_GH_TOKEN=ghp_test_token' "$BASHRC"
+    grep -q 'export GH_TOKEN=ghp_test_token' "$BASHRC"
+}
+
+@test "update_bashrc honors third-party provider selection" {
+    AAB_CLAUDE_CODE_INFERENCE_PROVIDER="third-party" update_bashrc
+    grep -q 'AAB_CLAUDE_CODE_INFERENCE_PROVIDER="third-party"' "$BASHRC"
 }
 
 @test "update_bashrc exports default ANTHROPIC_DEFAULT_*_MODEL in both branches" {
@@ -297,9 +556,9 @@ PY
 }
 
 @test "install_base_deps is a no-op when all required commands are present" {
-    # Runs on a host (or CI runner) where curl / python3 / git / sudo and
-    # the CA bundle are preinstalled — the dev-box / runner default.
-    for cmd in curl python3 git sudo; do
+    # Runs on a host (or CI runner) where curl / python3 / git / tar / gawk /
+    # sudo and the CA bundle are preinstalled — the dev-box / runner default.
+    for cmd in curl python3 git tar gawk sudo; do
         command -v "$cmd" >/dev/null || skip "precondition: $cmd must exist on the test host"
     done
     [ -f /etc/ssl/certs/ca-certificates.crt ] || skip "precondition: ca-certificates bundle must exist"
@@ -325,7 +584,7 @@ PY
 
 
 # ---------------------------------------------------------------------------
-# install_claude_code_plugins: cover the gh-authenticated path, the
+# install_agent_plugins: cover the gh-authenticated path, the
 # raw.githubusercontent.com fallback, and the skip-on-no-access path added for
 # private plugin marketplaces.
 # ---------------------------------------------------------------------------
@@ -387,16 +646,16 @@ write_marketplace_fixture() {
 JSON
 }
 
-@test "install_claude_code_plugins fetches via gh api when gh is authenticated (private-repo path)" {
+@test "install_agent_plugins fetches via gh api when gh is authenticated (private-repo path)" {
     setup_plugin_fakes
     export FAKE_GH_AUTH_OK=1
     # Fixture only reachable via gh — proves curl wasn't the source.
     write_marketplace_fixture "$FAKE_GH_DIR" "acme/private-plugin" "acme-market" "widget"
     echo "acme/private-plugin" > "$TEST_HOME/plugins.txt"
-    export AAB_CLAUDE_CODE_PLUGINS_FILE="$TEST_HOME/plugins.txt"
+    export AAB_AGENT_PLUGINS_FILE="$TEST_HOME/plugins.txt"
 
     write_settings
-    install_claude_code_plugins
+    install_agent_plugins
 
     python3 - <<PY
 import json
@@ -406,16 +665,16 @@ assert d["enabledPlugins"]["widget@acme-market"] is True, d
 PY
 }
 
-@test "install_claude_code_plugins falls back to raw.githubusercontent.com when gh is not authenticated" {
+@test "install_agent_plugins falls back to raw.githubusercontent.com when gh is not authenticated" {
     setup_plugin_fakes
     export FAKE_GH_AUTH_OK=0
     # Fixture only reachable via curl — proves the fallback path ran.
     write_marketplace_fixture "$FAKE_CURL_DIR" "acme/public-plugin" "acme-public" "gadget"
     echo "acme/public-plugin" > "$TEST_HOME/plugins.txt"
-    export AAB_CLAUDE_CODE_PLUGINS_FILE="$TEST_HOME/plugins.txt"
+    export AAB_AGENT_PLUGINS_FILE="$TEST_HOME/plugins.txt"
 
     write_settings
-    install_claude_code_plugins
+    install_agent_plugins
 
     python3 - <<PY
 import json
@@ -425,17 +684,17 @@ assert d["enabledPlugins"]["gadget@acme-public"] is True, d
 PY
 }
 
-@test "install_claude_code_plugins logs-and-skips a private repo the caller cannot access" {
+@test "install_agent_plugins logs-and-skips a private repo the caller cannot access" {
     setup_plugin_fakes
     export FAKE_GH_AUTH_OK=1
     # One entry is reachable via curl; the other is reachable nowhere (simulates
     # a private repo the caller has no token for).
     write_marketplace_fixture "$FAKE_CURL_DIR" "acme/public-plugin" "acme-public" "gadget"
     printf '%s\n%s\n' "acme/public-plugin" "private/no-access" > "$TEST_HOME/plugins.txt"
-    export AAB_CLAUDE_CODE_PLUGINS_FILE="$TEST_HOME/plugins.txt"
+    export AAB_AGENT_PLUGINS_FILE="$TEST_HOME/plugins.txt"
 
     write_settings
-    run install_claude_code_plugins
+    run install_agent_plugins
     [ "$status" -eq 0 ]
     # Soft log, not WARN, for the inaccessible repo.
     [[ "$output" == *"Could not fetch .claude-plugin/marketplace.json from private/no-access"* ]]
@@ -452,10 +711,9 @@ assert "private/no-access" not in repos, repos
 PY
 }
 
-# Drop a fake `claude` on PATH that records every invocation to
-# $TEST_HOME/claude-invocations and exits 0. Lets the
-# install_claude_code_plugins tests below assert the marketplace-add
-# and plugin-install calls actually fired with the expected arguments.
+# Drop fake agent CLIs on PATH that record every plugin invocation and exit 0.
+# The install_agent_plugins tests below assert the marketplace-add and
+# plugin-install calls actually fired with the expected arguments.
 setup_fake_claude() {
     cat > "$FAKE_BIN/claude" <<SH
 #!/usr/bin/env bash
@@ -465,9 +723,19 @@ SH
     chmod +x "$FAKE_BIN/claude"
 }
 
-@test "install_claude_code_plugins runs claude plugin marketplace add + install for each enabled plugin" {
+setup_fake_codex_plugin() {
+    cat > "$FAKE_BIN/codex" <<SH
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >> "$TEST_HOME/codex-plugin-invocations"
+exit 0
+SH
+    chmod +x "$FAKE_BIN/codex"
+}
+
+@test "install_agent_plugins runs both agent plugin CLIs for each enabled plugin" {
     setup_plugin_fakes
     setup_fake_claude
+    setup_fake_codex_plugin
     export FAKE_GH_AUTH_OK=1
     # One marketplace, two plugins — exercises the dedupe (one
     # `marketplace add`) and the per-plugin install loop.
@@ -475,49 +743,61 @@ SH
 {"name": "acme-multi", "plugins": [{"name": "alpha"}, {"name": "beta"}]}
 JSON
     echo "acme/multi" > "$TEST_HOME/plugins.txt"
-    export AAB_CLAUDE_CODE_PLUGINS_FILE="$TEST_HOME/plugins.txt"
+    export AAB_AGENT_PLUGINS_FILE="$TEST_HOME/plugins.txt"
 
     write_settings
-    install_claude_code_plugins
+    install_agent_plugins
 
     grep -Fxq 'plugin marketplace add acme/multi' "$TEST_HOME/claude-invocations"
     grep -Fxq 'plugin install alpha@acme-multi --scope user' "$TEST_HOME/claude-invocations"
     grep -Fxq 'plugin install beta@acme-multi --scope user' "$TEST_HOME/claude-invocations"
+    grep -Fxq 'plugin marketplace add acme/multi' "$TEST_HOME/codex-plugin-invocations"
+    grep -Fxq 'plugin add alpha@acme-multi' "$TEST_HOME/codex-plugin-invocations"
+    grep -Fxq 'plugin add beta@acme-multi' "$TEST_HOME/codex-plugin-invocations"
     # Dedupe: one marketplace add, not two.
     [ "$(grep -c 'plugin marketplace add' "$TEST_HOME/claude-invocations")" -eq 1 ]
+    [ "$(grep -c 'plugin marketplace add' "$TEST_HOME/codex-plugin-invocations")" -eq 1 ]
 }
 
-@test "install_claude_code_plugins runs marketplace-add once per repo across distinct plugin lines" {
+@test "install_agent_plugins runs marketplace-add once per repo across distinct plugin lines" {
     setup_plugin_fakes
     setup_fake_claude
+    setup_fake_codex_plugin
     export FAKE_GH_AUTH_OK=1
     # Two repos, one plugin each — exercises the multi-repo loop.
     write_marketplace_fixture "$FAKE_GH_DIR" "alpha/m" "alpha-m" "p1"
     write_marketplace_fixture "$FAKE_GH_DIR" "beta/m" "beta-m" "p2"
     printf '%s\n%s\n' "alpha/m" "beta/m" > "$TEST_HOME/plugins.txt"
-    export AAB_CLAUDE_CODE_PLUGINS_FILE="$TEST_HOME/plugins.txt"
+    export AAB_AGENT_PLUGINS_FILE="$TEST_HOME/plugins.txt"
 
     write_settings
-    install_claude_code_plugins
+    install_agent_plugins
 
     grep -Fxq 'plugin marketplace add alpha/m' "$TEST_HOME/claude-invocations"
     grep -Fxq 'plugin marketplace add beta/m' "$TEST_HOME/claude-invocations"
     grep -Fxq 'plugin install p1@alpha-m --scope user' "$TEST_HOME/claude-invocations"
     grep -Fxq 'plugin install p2@beta-m --scope user' "$TEST_HOME/claude-invocations"
+    grep -Fxq 'plugin marketplace add alpha/m' "$TEST_HOME/codex-plugin-invocations"
+    grep -Fxq 'plugin marketplace add beta/m' "$TEST_HOME/codex-plugin-invocations"
+    grep -Fxq 'plugin add p1@alpha-m' "$TEST_HOME/codex-plugin-invocations"
+    grep -Fxq 'plugin add p2@beta-m' "$TEST_HOME/codex-plugin-invocations"
 }
 
-@test "install_claude_code_plugins warns and skips when claude binary is absent" {
+@test "install_agent_plugins warns and skips CLI installs when agent binaries are absent" {
     setup_plugin_fakes
-    # Don't call setup_fake_claude — leave PATH without a claude binary.
+    # Do not call setup_fake_claude or setup_fake_codex_plugin; leave PATH without
+    # agent binaries.
+    PATH="$FAKE_BIN:/usr/bin:/bin"
     export FAKE_GH_AUTH_OK=1
     write_marketplace_fixture "$FAKE_GH_DIR" "acme/m" "acme-m" "widget"
     echo "acme/m" > "$TEST_HOME/plugins.txt"
-    export AAB_CLAUDE_CODE_PLUGINS_FILE="$TEST_HOME/plugins.txt"
+    export AAB_AGENT_PLUGINS_FILE="$TEST_HOME/plugins.txt"
 
     write_settings
-    run install_claude_code_plugins
+    run install_agent_plugins
     [ "$status" -eq 0 ]
     [[ "$output" == *"WARN:"*"claude binary not on PATH"* ]]
+    [[ "$output" == *"WARN:"*"codex binary not on PATH"* ]]
     # settings.json was still written even when the install step is skipped.
     python3 - <<PY
 import json
@@ -732,6 +1012,7 @@ _etc_env_sandbox() {
     AAB_CLAUDE_CODE_INFERENCE_PROVIDER="anthropic" \
     AAB_CLAUDE_CODE_FIRST_PARTY_MODEL="claude-opus-4-7" \
     AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY="sk-ant-test-key" \
+    AAB_CODEX_FIRST_PARTY_API_KEY="codex-etc-env-test-key" \
     AAB_GH_TOKEN="ghp_etc_env_test" \
         update_etc_environment
 
@@ -741,6 +1022,8 @@ _etc_env_sandbox() {
     grep -q  '^AAB_CLAUDE_CODE_INFERENCE_PROVIDER="anthropic"$' "$ETC_ENV"
     grep -q  '^AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY="sk-ant-test-key"$' "$ETC_ENV"
     grep -q  '^ANTHROPIC_API_KEY="sk-ant-test-key"$'            "$ETC_ENV"
+    grep -q  '^AAB_CODEX_FIRST_PARTY_API_KEY="codex-etc-env-test-key"$' "$ETC_ENV"
+    grep -q  '^OPENAI_API_KEY="codex-etc-env-test-key"$'        "$ETC_ENV"
     grep -q  '^ANTHROPIC_MODEL="claude-opus-4-7"$'              "$ETC_ENV"
     grep -q  '^AAB_GH_TOKEN="ghp_etc_env_test"$'                "$ETC_ENV"
     grep -q  '^GH_TOKEN="ghp_etc_env_test"$'                    "$ETC_ENV"
@@ -822,7 +1105,7 @@ EOF
     # AAB block sits below them.
     grep -qF "$ETC_ENV_MARKER_BEGIN" "$ETC_ENV"
     grep -q '^AAB_GH_TOKEN="ghp_keep"$' "$ETC_ENV"
-    grep -q '^GH_TOKEN="ghp_keep"$'     "$ETC_ENV"
+    grep -q '^GH_TOKEN="ghp_keep"$'  "$ETC_ENV"
 }
 
 @test "update_etc_environment replaces a stale managed block in place (re-runs match current env)" {
@@ -838,7 +1121,7 @@ EOF
     AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY="sk-ant-new" AAB_GH_TOKEN="ghp_new" update_etc_environment
     grep -q '^AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY="sk-ant-new"$' "$ETC_ENV"
     grep -q '^ANTHROPIC_API_KEY="sk-ant-new"$' "$ETC_ENV"
-    grep -q '^AAB_GH_TOKEN="ghp_new"$'         "$ETC_ENV"
+    grep -q '^AAB_GH_TOKEN="ghp_new"$'          "$ETC_ENV"
     grep -q '^GH_TOKEN="ghp_new"$'             "$ETC_ENV"
     ! grep -q '^AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY="sk-ant-old"$' "$ETC_ENV"
     ! grep -q '^ANTHROPIC_API_KEY="sk-ant-old"$' "$ETC_ENV"
@@ -855,7 +1138,8 @@ EOF
 @test "update_etc_environment skips when AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY is unset (anthropic branch)" {
     _etc_env_sandbox
     # No AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY in env. The block should still
-    # be written without a stale API key line.
+    # be written but without stale API-key lines — re-runs match the
+    # current env.
     AAB_CLAUDE_CODE_INFERENCE_PROVIDER="anthropic" \
     AAB_CLAUDE_CODE_FIRST_PARTY_MODEL="claude-opus-4-7" update_etc_environment
 
