@@ -18,6 +18,9 @@ setup() {
           AAB_CLAUDE_CODE_THIRD_PARTY_SONNET_MODEL \
           AAB_CLAUDE_CODE_THIRD_PARTY_OPUS_MODEL \
           AAB_CLAUDE_CODE_INFERENCE_PROVIDER \
+          AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY \
+          AAB_CLAUDE_CODE_THIRD_PARTY_BASE_URL \
+          AAB_CLAUDE_CODE_THIRD_PARTY_AUTH_TOKEN \
           ANTHROPIC_API_KEY ANTHROPIC_BASE_URL ANTHROPIC_AUTH_TOKEN \
           GH_TOKEN GIT_AUTHOR_NAME GIT_AUTHOR_EMAIL \
           AAB_CLAUDE_CODE_PLUGINS_FILE AAB_CLAUDE_CODE_PLUGINS_URL \
@@ -118,8 +121,8 @@ PY
     python3 -c "import json; d=json.load(open('$CLAUDE_JSON')); assert d['hasCompletedOnboarding'] is True"
 }
 
-@test "skip_onboarding pre-approves ANTHROPIC_API_KEY fingerprint when set" {
-    ANTHROPIC_API_KEY="sk-ant-test-0123456789abcdef0123456789abcdef" skip_onboarding
+@test "skip_onboarding pre-approves AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY fingerprint when set" {
+    AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY="sk-ant-test-0123456789abcdef0123456789abcdef" skip_onboarding
     python3 - <<PY
 import json
 d = json.load(open("$CLAUDE_JSON"))
@@ -144,8 +147,8 @@ PY
 }
 
 @test "skip_onboarding is idempotent (second call does not duplicate fingerprint)" {
-    ANTHROPIC_API_KEY="sk-ant-test-0123456789abcdef0123456789abcdef" skip_onboarding
-    ANTHROPIC_API_KEY="sk-ant-test-0123456789abcdef0123456789abcdef" skip_onboarding
+    AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY="sk-ant-test-0123456789abcdef0123456789abcdef" skip_onboarding
+    AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY="sk-ant-test-0123456789abcdef0123456789abcdef" skip_onboarding
     python3 - <<PY
 import json
 d = json.load(open("$CLAUDE_JSON"))
@@ -180,6 +183,27 @@ PY
 @test "update_bashrc honors third-party provider selection" {
     AAB_CLAUDE_CODE_INFERENCE_PROVIDER="third-party" update_bashrc
     grep -q 'AAB_CLAUDE_CODE_INFERENCE_PROVIDER="third-party"' "$BASHRC"
+}
+
+@test "update_bashrc exports first-party API key under AAB and Claude runtime names" {
+    AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY="sk-ant-test-key" update_bashrc
+    grep -q 'export AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY=sk-ant-test-key' "$BASHRC"
+    grep -q 'export ANTHROPIC_API_KEY=sk-ant-test-key' "$BASHRC"
+    grep -q 'unset AAB_CLAUDE_CODE_THIRD_PARTY_BASE_URL' "$BASHRC"
+    grep -q 'unset AAB_CLAUDE_CODE_THIRD_PARTY_AUTH_TOKEN' "$BASHRC"
+}
+
+@test "update_bashrc exports third-party credentials under AAB and Claude runtime names" {
+    AAB_CLAUDE_CODE_INFERENCE_PROVIDER="third-party" \
+        AAB_CLAUDE_CODE_THIRD_PARTY_BASE_URL="https://gateway.example.com" \
+        AAB_CLAUDE_CODE_THIRD_PARTY_AUTH_TOKEN="bearer-token-xyz" \
+        update_bashrc
+    grep -q 'export AAB_CLAUDE_CODE_THIRD_PARTY_BASE_URL=https://gateway.example.com' "$BASHRC"
+    grep -q 'export ANTHROPIC_BASE_URL=https://gateway.example.com' "$BASHRC"
+    grep -q 'export AAB_CLAUDE_CODE_THIRD_PARTY_AUTH_TOKEN=bearer-token-xyz' "$BASHRC"
+    grep -q 'export ANTHROPIC_AUTH_TOKEN=bearer-token-xyz' "$BASHRC"
+    grep -q 'unset AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY' "$BASHRC"
+    grep -q 'unset ANTHROPIC_API_KEY' "$BASHRC"
 }
 
 @test "update_bashrc exports default ANTHROPIC_DEFAULT_*_MODEL in both branches" {
@@ -674,7 +698,7 @@ _etc_env_sandbox() {
     _etc_env_sandbox
     AAB_CLAUDE_CODE_INFERENCE_PROVIDER="anthropic" \
     AAB_CLAUDE_CODE_FIRST_PARTY_MODEL="claude-opus-4-7" \
-    ANTHROPIC_API_KEY="sk-ant-test-key" \
+    AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY="sk-ant-test-key" \
     GH_TOKEN="ghp_etc_env_test" \
         update_etc_environment
 
@@ -682,6 +706,7 @@ _etc_env_sandbox() {
     grep -qF "$ETC_ENV_MARKER_BEGIN" "$ETC_ENV"
     grep -qF "$ETC_ENV_MARKER_END"   "$ETC_ENV"
     grep -q  '^AAB_CLAUDE_CODE_INFERENCE_PROVIDER="anthropic"$' "$ETC_ENV"
+    grep -q  '^AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY="sk-ant-test-key"$' "$ETC_ENV"
     grep -q  '^ANTHROPIC_API_KEY="sk-ant-test-key"$'            "$ETC_ENV"
     grep -q  '^ANTHROPIC_MODEL="claude-opus-4-7"$'              "$ETC_ENV"
     grep -q  '^GH_TOKEN="ghp_etc_env_test"$'                    "$ETC_ENV"
@@ -700,12 +725,14 @@ _etc_env_sandbox() {
     AAB_CLAUDE_CODE_THIRD_PARTY_HAIKU_MODEL="aws/anthropic/claude-haiku-4-5-v1" \
     AAB_CLAUDE_CODE_THIRD_PARTY_SONNET_MODEL="aws/anthropic/bedrock-claude-sonnet-4-6" \
     AAB_CLAUDE_CODE_THIRD_PARTY_OPUS_MODEL="aws/anthropic/bedrock-claude-opus-4-7" \
-    ANTHROPIC_BASE_URL="https://gateway.example.com" \
-    ANTHROPIC_AUTH_TOKEN="bearer-token-xyz" \
+    AAB_CLAUDE_CODE_THIRD_PARTY_BASE_URL="https://gateway.example.com" \
+    AAB_CLAUDE_CODE_THIRD_PARTY_AUTH_TOKEN="bearer-token-xyz" \
         update_etc_environment
 
     grep -q '^AAB_CLAUDE_CODE_INFERENCE_PROVIDER="third-party"$' "$ETC_ENV"
+    grep -q '^AAB_CLAUDE_CODE_THIRD_PARTY_BASE_URL="https://gateway.example.com"$' "$ETC_ENV"
     grep -q '^ANTHROPIC_BASE_URL="https://gateway.example.com"$' "$ETC_ENV"
+    grep -q '^AAB_CLAUDE_CODE_THIRD_PARTY_AUTH_TOKEN="bearer-token-xyz"$' "$ETC_ENV"
     grep -q '^ANTHROPIC_AUTH_TOKEN="bearer-token-xyz"$'          "$ETC_ENV"
     grep -q '^ANTHROPIC_MODEL="aws/anthropic/bedrock-claude-opus-4-7"$' "$ETC_ENV"
     grep -q '^ANTHROPIC_DEFAULT_HAIKU_MODEL="aws/anthropic/claude-haiku-4-5-v1"$'        "$ETC_ENV"
@@ -758,15 +785,18 @@ EOF
 @test "update_etc_environment replaces a stale managed block in place (re-runs match current env)" {
     _etc_env_sandbox
     AAB_CLAUDE_CODE_INFERENCE_PROVIDER="anthropic" \
-    ANTHROPIC_API_KEY="sk-ant-old" GH_TOKEN="ghp_old" update_etc_environment
+    AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY="sk-ant-old" GH_TOKEN="ghp_old" update_etc_environment
+    grep -q '^AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY="sk-ant-old"$' "$ETC_ENV"
     grep -q '^ANTHROPIC_API_KEY="sk-ant-old"$' "$ETC_ENV"
 
     # Second run with different env: old values must NOT linger.
-    unset ANTHROPIC_API_KEY GH_TOKEN
+    unset AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY GH_TOKEN
     AAB_CLAUDE_CODE_INFERENCE_PROVIDER="anthropic" \
-    ANTHROPIC_API_KEY="sk-ant-new" GH_TOKEN="ghp_new" update_etc_environment
+    AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY="sk-ant-new" GH_TOKEN="ghp_new" update_etc_environment
+    grep -q '^AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY="sk-ant-new"$' "$ETC_ENV"
     grep -q '^ANTHROPIC_API_KEY="sk-ant-new"$' "$ETC_ENV"
     grep -q '^GH_TOKEN="ghp_new"$'             "$ETC_ENV"
+    ! grep -q '^AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY="sk-ant-old"$' "$ETC_ENV"
     ! grep -q '^ANTHROPIC_API_KEY="sk-ant-old"$' "$ETC_ENV"
     ! grep -q '^GH_TOKEN="ghp_old"$'             "$ETC_ENV"
 }
@@ -777,16 +807,16 @@ EOF
     [ "$(stat -c '%a' "$ETC_ENV")" = "644" ]
 }
 
-@test "update_etc_environment skips when ANTHROPIC_API_KEY is unset (anthropic branch)" {
+@test "update_etc_environment skips when AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY is unset (anthropic branch)" {
     _etc_env_sandbox
-    # No ANTHROPIC_API_KEY in env. The block should still be written but
-    # without a stale `ANTHROPIC_API_KEY=` line — re-runs match the
-    # current env.
+    # No AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY in env. The block should still
+    # be written without a stale API key line.
     AAB_CLAUDE_CODE_INFERENCE_PROVIDER="anthropic" \
     AAB_CLAUDE_CODE_FIRST_PARTY_MODEL="claude-opus-4-7" update_etc_environment
 
     grep -qF "$ETC_ENV_MARKER_BEGIN" "$ETC_ENV"
     grep -q  '^ANTHROPIC_MODEL="claude-opus-4-7"$' "$ETC_ENV"
+    ! grep -q '^AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY=' "$ETC_ENV"
     ! grep -q '^ANTHROPIC_API_KEY=' "$ETC_ENV"
 }
 
@@ -833,12 +863,12 @@ EOF
 
 @test "load_config_file: empty-string env var also beats the file (env 'set' wins even if empty)" {
     # Explicitly set to empty — distinct from unset. Must prevent file override.
-    export ANTHROPIC_API_KEY=""
+    export AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY=""
     cat > "$TEST_HOME/aab.conf" <<'EOF'
-ANTHROPIC_API_KEY=sk-ant-from-file
+AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY=sk-ant-from-file
 EOF
     load_config_file "$TEST_HOME/aab.conf"
-    [ "$ANTHROPIC_API_KEY" = "" ]
+    [ "$AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY" = "" ]
 }
 
 @test "load_config_file handles double- and single-quoted values, and leading 'export '" {
@@ -855,10 +885,10 @@ EOF
 
 @test "load_config_file preserves values containing '=' (only the FIRST '=' splits)" {
     cat > "$TEST_HOME/aab.conf" <<'EOF'
-ANTHROPIC_BASE_URL="https://example.com/v1?foo=bar&baz=qux"
+AAB_CLAUDE_CODE_THIRD_PARTY_BASE_URL="https://example.com/v1?foo=bar&baz=qux"
 EOF
     load_config_file "$TEST_HOME/aab.conf"
-    [ "$ANTHROPIC_BASE_URL" = "https://example.com/v1?foo=bar&baz=qux" ]
+    [ "$AAB_CLAUDE_CODE_THIRD_PARTY_BASE_URL" = "https://example.com/v1?foo=bar&baz=qux" ]
 }
 
 @test "load_config_file skips comments and blank lines" {

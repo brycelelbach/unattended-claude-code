@@ -18,8 +18,8 @@
 #      (bypassPermissions, sandboxed, max effort, opus-4-7).
 #   5. Pre-populates ~/.claude.json with hasCompletedOnboarding=true so the
 #      first `claude` launch skips the theme / color-scheme wizard, and —
-#      if ANTHROPIC_API_KEY is set — pre-approves that key so the CLI
-#      doesn't prompt for approval on first use either.
+#      if AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY is set — pre-approves that
+#      key so the CLI doesn't prompt for approval on first use either.
 #   6. Writes ~/.brev/onboarding.json so the first `brev` invocation skips
 #      the interactive tutorial.
 #   7. Configures git: user.name, user.email (from env vars), and registers
@@ -34,8 +34,9 @@
 #      tag.gpgsign). Does NOT touch ~/.ssh/config — signing role only.
 #   8. Appends PATH / alias / env exports to ~/.bashrc (managed block) so
 #      interactive shells pick up ~/.local/bin, run `claude` with
-#      --dangerously-skip-permissions, and — if ANTHROPIC_API_KEY was set
-#      at bootstrap time — export it for future shells.
+#      --dangerously-skip-permissions, and — if
+#      AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY was set at bootstrap time —
+#      export it for future shells.
 #   9. Mirrors the resolved credential / config env vars (provider tokens,
 #      model names, GH_TOKEN, …) into a managed block in /etc/environment
 #      so non-interactive shells (ssh remote command, systemd services
@@ -89,19 +90,24 @@
 #                       Fully-qualified third-party gateway opus-tier model
 #                       ID. Exported verbatim as ANTHROPIC_DEFAULT_OPUS_MODEL
 #                       in the third-party branch. Defaults to claude-opus-4-7.
-#   ANTHROPIC_API_KEY   Anthropic first-party API key. Last 20 characters are
+#   AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY
+#                       Anthropic first-party API key. Last 20 characters are
 #                       pre-approved in ~/.claude.json's
 #                       customApiKeyResponses.approved so Claude Code won't
 #                       prompt, and the key is exported from the anthropic
-#                       branch of the ~/.bashrc managed block.
-#   ANTHROPIC_BASE_URL  Base URL of the Anthropic-compatible third-party
+#                       branch of the ~/.bashrc managed block. Also exported
+#                       as ANTHROPIC_API_KEY for Claude Code itself.
+#   AAB_CLAUDE_CODE_THIRD_PARTY_BASE_URL
+#                       Base URL of the Anthropic-compatible third-party
 #                       gateway (points Claude Code at a non-Anthropic
 #                       endpoint). Exported from the third-party branch of
-#                       the ~/.bashrc managed block.
-#   ANTHROPIC_AUTH_TOKEN
+#                       the ~/.bashrc managed block. Also exported as
+#                       ANTHROPIC_BASE_URL for Claude Code itself.
+#   AAB_CLAUDE_CODE_THIRD_PARTY_AUTH_TOKEN
 #                       Bearer token used to authenticate against the
 #                       third-party gateway. Exported from the third-party
-#                       branch of the ~/.bashrc managed block.
+#                       branch of the ~/.bashrc managed block. Also exported
+#                       as ANTHROPIC_AUTH_TOKEN for Claude Code itself.
 #   GH_TOKEN            GitHub personal access token. Exported from the
 #                       ~/.bashrc managed block; gh reads it from the
 #                       environment directly, and the github.com credential
@@ -141,8 +147,9 @@
 # Can be run from a local checkout or piped via `curl ... | bash`. Safe to
 # re-run: existing settings.json and .claude.json are backed up before
 # overwrite, and the ~/.bashrc managed block is replaced wholesale each
-# run, so re-running without ANTHROPIC_API_KEY set will drop a previously-
-# written export (this is intentional — re-runs match the current env).
+# run, so re-running without AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY set will
+# drop a previously-written export (this is intentional — re-runs match the
+# current env).
 #
 # Optional config input — settings using the env-var contract above can
 # come in via either of two channels (in order of preference):
@@ -322,7 +329,7 @@ JSON
 
 # ---------------------------------------------------------------------------
 # 5. Skip the first-run onboarding (theme prompt) AND pre-approve the
-# ANTHROPIC_API_KEY fingerprint if one is set.
+# AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY fingerprint if one is set.
 #
 # Both gates live in ~/.claude.json (NOT ~/.claude/settings.json):
 #   - hasCompletedOnboarding controls the theme / color-scheme wizard
@@ -334,7 +341,7 @@ JSON
 # ---------------------------------------------------------------------------
 skip_onboarding() {
     command -v python3 >/dev/null 2>&1 || { log "ERROR: python3 required to edit ~/.claude.json."; exit 1; }
-    python3 - "${CLAUDE_JSON}" "${ANTHROPIC_API_KEY:-}" <<'PY'
+    python3 - "${CLAUDE_JSON}" "${AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY:-}" <<'PY'
 import json, os, shutil, sys, time
 path = sys.argv[1]
 api_key = sys.argv[2] if len(sys.argv) > 2 else ""
@@ -356,7 +363,7 @@ if api_key:
     if fp not in approved:
         approved.append(fp)
     resp.setdefault("rejected", [])
-    print(f"[bootstrap] Pre-approved ANTHROPIC_API_KEY fingerprint ...{fp}.")
+    print(f"[bootstrap] Pre-approved AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY fingerprint ...{fp}.")
 fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
 with os.fdopen(fd, "w") as f:
     json.dump(data, f, indent=2)
@@ -747,8 +754,9 @@ PY
 #
 # The block is identified by the BEGIN/END markers. On re-run we strip the
 # old block and append a fresh one, so the output always matches the
-# current env — re-running without ANTHROPIC_API_KEY set will drop a
-# previously-written export, which is what the header comment promises.
+# current env — re-running without AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY set
+# will drop a previously-written export, which is what the header comment
+# promises.
 # ---------------------------------------------------------------------------
 update_bashrc() {
     touch "${BASHRC}"
@@ -777,6 +785,9 @@ update_bashrc() {
     local third_party_haiku_model="${AAB_CLAUDE_CODE_THIRD_PARTY_HAIKU_MODEL:-$DEFAULT_CLAUDE_CODE_HAIKU_MODEL}"
     local third_party_sonnet_model="${AAB_CLAUDE_CODE_THIRD_PARTY_SONNET_MODEL:-$DEFAULT_CLAUDE_CODE_SONNET_MODEL}"
     local third_party_opus_model="${AAB_CLAUDE_CODE_THIRD_PARTY_OPUS_MODEL:-$DEFAULT_CLAUDE_CODE_OPUS_MODEL}"
+    local first_party_api_key="${AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY:-}"
+    local third_party_base_url="${AAB_CLAUDE_CODE_THIRD_PARTY_BASE_URL:-}"
+    local third_party_auth_token="${AAB_CLAUDE_CODE_THIRD_PARTY_AUTH_TOKEN:-}"
 
     {
         printf '\n%s\n' "${BASHRC_MARKER_BEGIN}"
@@ -805,23 +816,29 @@ update_bashrc() {
         printf '# <<< autonomous-agent-bootstrap AAB_CLAUDE_CODE_INFERENCE_PROVIDER <<<\n\n'
 
         printf 'if [ "${AAB_CLAUDE_CODE_INFERENCE_PROVIDER}" = "anthropic" ]; then\n'
+        printf '    unset AAB_CLAUDE_CODE_THIRD_PARTY_BASE_URL\n'
+        printf '    unset AAB_CLAUDE_CODE_THIRD_PARTY_AUTH_TOKEN\n'
         printf '    unset ANTHROPIC_BASE_URL\n'
         printf '    unset ANTHROPIC_AUTH_TOKEN\n'
         printf '    unset CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS\n'
-        if [ -n "${ANTHROPIC_API_KEY:-}" ]; then
-            printf '    export ANTHROPIC_API_KEY=%q\n' "$ANTHROPIC_API_KEY"
+        if [ -n "$first_party_api_key" ]; then
+            printf '    export AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY=%q\n' "$first_party_api_key"
+            printf '    export ANTHROPIC_API_KEY=%q\n' "$first_party_api_key"
         fi
         printf '    export ANTHROPIC_MODEL=%q\n' "$model"
         printf '    export ANTHROPIC_DEFAULT_HAIKU_MODEL=%q\n' "$haiku_model"
         printf '    export ANTHROPIC_DEFAULT_SONNET_MODEL=%q\n' "$sonnet_model"
         printf '    export ANTHROPIC_DEFAULT_OPUS_MODEL=%q\n' "$opus_model"
         printf 'else\n'
+        printf '    unset AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY\n'
         printf '    unset ANTHROPIC_API_KEY\n'
-        if [ -n "${ANTHROPIC_BASE_URL:-}" ]; then
-            printf '    export ANTHROPIC_BASE_URL=%q\n' "$ANTHROPIC_BASE_URL"
+        if [ -n "$third_party_base_url" ]; then
+            printf '    export AAB_CLAUDE_CODE_THIRD_PARTY_BASE_URL=%q\n' "$third_party_base_url"
+            printf '    export ANTHROPIC_BASE_URL=%q\n' "$third_party_base_url"
         fi
-        if [ -n "${ANTHROPIC_AUTH_TOKEN:-}" ]; then
-            printf '    export ANTHROPIC_AUTH_TOKEN=%q\n' "$ANTHROPIC_AUTH_TOKEN"
+        if [ -n "$third_party_auth_token" ]; then
+            printf '    export AAB_CLAUDE_CODE_THIRD_PARTY_AUTH_TOKEN=%q\n' "$third_party_auth_token"
+            printf '    export ANTHROPIC_AUTH_TOKEN=%q\n' "$third_party_auth_token"
         fi
         printf '    export ANTHROPIC_MODEL=%q\n' "$third_party_model"
         printf '    export ANTHROPIC_DEFAULT_HAIKU_MODEL=%q\n' "$third_party_haiku_model"
@@ -908,6 +925,9 @@ update_etc_environment() {
     local third_party_haiku_model="${AAB_CLAUDE_CODE_THIRD_PARTY_HAIKU_MODEL:-$DEFAULT_CLAUDE_CODE_HAIKU_MODEL}"
     local third_party_sonnet_model="${AAB_CLAUDE_CODE_THIRD_PARTY_SONNET_MODEL:-$DEFAULT_CLAUDE_CODE_SONNET_MODEL}"
     local third_party_opus_model="${AAB_CLAUDE_CODE_THIRD_PARTY_OPUS_MODEL:-$DEFAULT_CLAUDE_CODE_OPUS_MODEL}"
+    local first_party_api_key="${AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY:-}"
+    local third_party_base_url="${AAB_CLAUDE_CODE_THIRD_PARTY_BASE_URL:-}"
+    local third_party_auth_token="${AAB_CLAUDE_CODE_THIRD_PARTY_AUTH_TOKEN:-}"
 
     local tmp
     tmp=$(mktemp)
@@ -931,19 +951,22 @@ update_etc_environment() {
             printf 'GH_TOKEN="%s"\n' "$GH_TOKEN"
         fi
         if [ "$provider" = "anthropic" ]; then
-            if [ -n "${ANTHROPIC_API_KEY:-}" ]; then
-                printf 'ANTHROPIC_API_KEY="%s"\n' "$ANTHROPIC_API_KEY"
+            if [ -n "$first_party_api_key" ]; then
+                printf 'AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY="%s"\n' "$first_party_api_key"
+                printf 'ANTHROPIC_API_KEY="%s"\n' "$first_party_api_key"
             fi
             printf 'ANTHROPIC_MODEL="%s"\n' "$model"
             printf 'ANTHROPIC_DEFAULT_HAIKU_MODEL="%s"\n'  "$haiku_model"
             printf 'ANTHROPIC_DEFAULT_SONNET_MODEL="%s"\n' "$sonnet_model"
             printf 'ANTHROPIC_DEFAULT_OPUS_MODEL="%s"\n'   "$opus_model"
         else
-            if [ -n "${ANTHROPIC_BASE_URL:-}" ]; then
-                printf 'ANTHROPIC_BASE_URL="%s"\n' "$ANTHROPIC_BASE_URL"
+            if [ -n "$third_party_base_url" ]; then
+                printf 'AAB_CLAUDE_CODE_THIRD_PARTY_BASE_URL="%s"\n' "$third_party_base_url"
+                printf 'ANTHROPIC_BASE_URL="%s"\n' "$third_party_base_url"
             fi
-            if [ -n "${ANTHROPIC_AUTH_TOKEN:-}" ]; then
-                printf 'ANTHROPIC_AUTH_TOKEN="%s"\n' "$ANTHROPIC_AUTH_TOKEN"
+            if [ -n "$third_party_auth_token" ]; then
+                printf 'AAB_CLAUDE_CODE_THIRD_PARTY_AUTH_TOKEN="%s"\n' "$third_party_auth_token"
+                printf 'ANTHROPIC_AUTH_TOKEN="%s"\n' "$third_party_auth_token"
             fi
             printf 'ANTHROPIC_MODEL="%s"\n'                "$third_party_model"
             printf 'ANTHROPIC_DEFAULT_HAIKU_MODEL="%s"\n'  "$third_party_haiku_model"
