@@ -514,16 +514,20 @@ PY
 }
 
 @test "update_bashrc uses explicit first-party and third-party model vars" {
-    AAB_CLAUDE_CODE_FIRST_PARTY_HAIKU_MODEL="claude-haiku-first" \
+    AAB_CLAUDE_CODE_FIRST_PARTY_MODEL="claude-opus-first" \
+        AAB_CLAUDE_CODE_FIRST_PARTY_HAIKU_MODEL="claude-haiku-first" \
         AAB_CLAUDE_CODE_FIRST_PARTY_SONNET_MODEL="claude-sonnet-first" \
         AAB_CLAUDE_CODE_FIRST_PARTY_OPUS_MODEL="claude-opus-first" \
+        AAB_CLAUDE_CODE_THIRD_PARTY_MODEL="aws/anthropic/bedrock-claude-opus-4-7" \
         AAB_CLAUDE_CODE_THIRD_PARTY_HAIKU_MODEL="aws/anthropic/claude-haiku-4-5-v1" \
         AAB_CLAUDE_CODE_THIRD_PARTY_SONNET_MODEL="aws/anthropic/bedrock-claude-sonnet-4-6" \
         AAB_CLAUDE_CODE_THIRD_PARTY_OPUS_MODEL="aws/anthropic/bedrock-claude-opus-4-7" \
         update_bashrc
+    grep -q "ANTHROPIC_MODEL=claude-opus-first"                                      "$BASHRC"
     grep -q "ANTHROPIC_DEFAULT_HAIKU_MODEL=claude-haiku-first"                         "$BASHRC"
     grep -q "ANTHROPIC_DEFAULT_SONNET_MODEL=claude-sonnet-first"                       "$BASHRC"
     grep -q "ANTHROPIC_DEFAULT_OPUS_MODEL=claude-opus-first"                           "$BASHRC"
+    grep -q "ANTHROPIC_MODEL=aws/anthropic/bedrock-claude-opus-4-7"                    "$BASHRC"
     grep -q "ANTHROPIC_DEFAULT_HAIKU_MODEL=aws/anthropic/claude-haiku-4-5-v1"          "$BASHRC"
     grep -q "ANTHROPIC_DEFAULT_SONNET_MODEL=aws/anthropic/bedrock-claude-sonnet-4-6" "$BASHRC"
     grep -q "ANTHROPIC_DEFAULT_OPUS_MODEL=aws/anthropic/bedrock-claude-opus-4-7"     "$BASHRC"
@@ -531,15 +535,18 @@ PY
 
 @test "update_bashrc third-party explicit model vars resolve verbatim when provider flips" {
     AAB_CLAUDE_CODE_INFERENCE_PROVIDER="third-party" \
+        AAB_CLAUDE_CODE_THIRD_PARTY_MODEL="aws/anthropic/bedrock-claude-opus-4-7" \
         AAB_CLAUDE_CODE_THIRD_PARTY_HAIKU_MODEL="aws/anthropic/claude-haiku-4-5-v1" \
         AAB_CLAUDE_CODE_THIRD_PARTY_SONNET_MODEL="aws/anthropic/bedrock-claude-sonnet-4-6" \
         AAB_CLAUDE_CODE_THIRD_PARTY_OPUS_MODEL="aws/anthropic/bedrock-claude-opus-4-7" \
         update_bashrc
     # shellcheck disable=SC1090
-    ANTHROPIC_DEFAULT_HAIKU_MODEL="" \
+    ANTHROPIC_MODEL="" \
+        ANTHROPIC_DEFAULT_HAIKU_MODEL="" \
         ANTHROPIC_DEFAULT_SONNET_MODEL="" \
         ANTHROPIC_DEFAULT_OPUS_MODEL="" \
         . "$BASHRC"
+    [ "$ANTHROPIC_MODEL"               = "aws/anthropic/bedrock-claude-opus-4-7" ]
     [ "$ANTHROPIC_DEFAULT_HAIKU_MODEL"  = "aws/anthropic/claude-haiku-4-5-v1" ]
     [ "$ANTHROPIC_DEFAULT_SONNET_MODEL" = "aws/anthropic/bedrock-claude-sonnet-4-6" ]
     [ "$ANTHROPIC_DEFAULT_OPUS_MODEL"   = "aws/anthropic/bedrock-claude-opus-4-7" ]
