@@ -24,6 +24,7 @@ setup() {
           AAB_CLAUDE_CODE_THIRD_PARTY_AUTH_TOKEN \
           AAB_CODEX_FIRST_PARTY_MODEL AAB_CODEX_EFFORT \
           AAB_CODEX_FIRST_PARTY_API_KEY AAB_SKIP_INFERENCE_SMOKE_TESTS \
+          AAB_BREV_API_KEY AAB_BREV_ORG_ID BREV_API_KEY BREV_ORG_ID \
           AAB_GH_TOKEN AAB_GIT_AUTHOR_NAME AAB_GIT_AUTHOR_EMAIL \
           AAB_GH_AUTH_SSH_PRIVATE_KEY_B64 AAB_GIT_SIGNING_PRIVATE_KEY_B64 \
           ANTHROPIC_API_KEY ANTHROPIC_BASE_URL ANTHROPIC_AUTH_TOKEN \
@@ -323,6 +324,80 @@ PY
     [ "$status" -ne 0 ]
     [[ "$output" == *"codex login --with-api-key failed"* ]]
     [[ "$output" != *"codex-first-party-test-key"* ]]
+}
+
+setup_fake_brev() {
+    export FAKE_BREV_BIN="$TEST_HOME/fake-brev-bin"
+    mkdir -p "$FAKE_BREV_BIN"
+    cat > "$FAKE_BREV_BIN/brev" <<SH
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >> "$TEST_HOME/brev-invocations"
+if [ "\${FAKE_BREV_FAIL:-0}" = "1" ]; then
+    exit 42
+fi
+if [ "\$1" = "login" ] && [ "\${2:-}" = "--api-key" ] && [ "\${4:-}" = "--org-id" ]; then
+    mkdir -p "\$HOME/.brev"
+    printf '{"api_key":"%s","org_id":"%s"}\n' "\${3:-}" "\${5:-}" > "\$HOME/.brev/credentials.json"
+    exit 0
+fi
+exit 1
+SH
+    chmod +x "$FAKE_BREV_BIN/brev"
+    export PATH="$FAKE_BREV_BIN:$PATH"
+}
+
+@test "configure_brev_auth is a no-op when Brev API-key vars are unset" {
+    setup_fake_brev
+    run configure_brev_auth
+    [ "$status" -eq 0 ]
+    [ ! -f "$TEST_HOME/brev-invocations" ]
+    [ ! -f "$HOME/.brev/credentials.json" ]
+}
+
+@test "configure_brev_auth ignores unprefixed Brev API-key vars" {
+    setup_fake_brev
+    BREV_API_KEY="brev-unprefixed-test-key" \
+        BREV_ORG_ID="org-unprefixed-test" \
+        run configure_brev_auth
+    [ "$status" -eq 0 ]
+    [ ! -f "$TEST_HOME/brev-invocations" ]
+    [ ! -f "$HOME/.brev/credentials.json" ]
+}
+
+@test "configure_brev_auth requires API key and org ID together" {
+    setup_fake_brev
+    AAB_BREV_API_KEY="brev-test-key" run configure_brev_auth
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"AAB_BREV_API_KEY and AAB_BREV_ORG_ID must both be set"* ]]
+    [ ! -f "$TEST_HOME/brev-invocations" ]
+    [ ! -f "$HOME/.brev/credentials.json" ]
+}
+
+@test "configure_brev_auth logs in with AAB_BREV_API_KEY and AAB_BREV_ORG_ID" {
+    setup_fake_brev
+    AAB_BREV_API_KEY="brev-test-key" \
+        AAB_BREV_ORG_ID="org-test" \
+        run configure_brev_auth
+    [ "$status" -eq 0 ]
+    grep -Fxq 'login --api-key brev-test-key --org-id org-test' "$TEST_HOME/brev-invocations"
+    python3 - <<PY
+import json
+d = json.load(open("$HOME/.brev/credentials.json"))
+assert d["api_key"] == "brev-test-key", d
+assert d["org_id"] == "org-test", d
+PY
+    [[ "$output" != *"brev-test-key"* ]]
+}
+
+@test "configure_brev_auth fails when Brev API-key login fails" {
+    setup_fake_brev
+    export FAKE_BREV_FAIL=1
+    AAB_BREV_API_KEY="brev-test-key" \
+        AAB_BREV_ORG_ID="org-test" \
+        run configure_brev_auth
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"brev login --api-key failed"* ]]
+    [[ "$output" != *"brev-test-key"* ]]
 }
 
 setup_fake_smoke_agents() {

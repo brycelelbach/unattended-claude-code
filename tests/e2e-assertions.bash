@@ -99,6 +99,13 @@ if [ -n "${AAB_CODEX_FIRST_PARTY_API_KEY:-}" ]; then
         || fail "OPENAI_API_KEY export derived from AAB_CODEX_FIRST_PARTY_API_KEY not written."
     pass "Codex first-party API key exports written."
 fi
+if [ -n "${AAB_BREV_API_KEY:-}" ]; then
+    grep -q '^export AAB_BREV_API_KEY=' "$BASHRC" \
+        || fail "AAB_BREV_API_KEY export not written."
+    grep -q '^export AAB_BREV_ORG_ID=' "$BASHRC" \
+        || fail "AAB_BREV_ORG_ID export not written."
+    pass "Brev API-key auth exports written."
+fi
 
 # 8. Inner provider marker block is present with the expected value.
 grep -q 'AAB_CLAUDE_CODE_INFERENCE_PROVIDER=' "$BASHRC" \
@@ -175,6 +182,13 @@ PY
 fi
 command -v brev   >/dev/null 2>&1 || fail "brev not on PATH after bootstrap."
 pass "brev binary installed and on PATH."
+if [ -n "${AAB_BREV_API_KEY:-}" ] || [ -n "${AAB_BREV_ORG_ID:-}" ]; then
+    [ -n "${AAB_BREV_API_KEY:-}" ] || fail "AAB_BREV_API_KEY missing while AAB_BREV_ORG_ID is set."
+    [ -n "${AAB_BREV_ORG_ID:-}" ] || fail "AAB_BREV_ORG_ID missing while AAB_BREV_API_KEY is set."
+    [ -f "$HOME/.brev/credentials.json" ] || fail "Brev credentials.json not written."
+    brev ls >/dev/null 2>&1 || fail "brev ls failed with API-key auth."
+    pass "Brev API-key auth configured."
+fi
 command -v gh     >/dev/null 2>&1 || fail "gh not on PATH after bootstrap."
 pass "gh binary installed."
 
@@ -215,6 +229,12 @@ if [ -n "${AAB_CODEX_FIRST_PARTY_API_KEY:-}" ]; then
         || fail "AAB_CODEX_FIRST_PARTY_API_KEY missing from $ETC_ENV."
     grep -q '^OPENAI_API_KEY=' "$ETC_ENV" \
         || fail "OPENAI_API_KEY missing from $ETC_ENV."
+fi
+if [ -n "${AAB_BREV_API_KEY:-}" ]; then
+    grep -q '^AAB_BREV_API_KEY=' "$ETC_ENV" \
+        || fail "AAB_BREV_API_KEY missing from $ETC_ENV."
+    grep -q '^AAB_BREV_ORG_ID=' "$ETC_ENV" \
+        || fail "AAB_BREV_ORG_ID missing from $ETC_ENV."
 fi
 pass "$ETC_ENV managed block present exactly once with provider / model state."
 

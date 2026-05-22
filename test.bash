@@ -11,8 +11,9 @@
 #                            overwrites ~/.codex/config.toml, rewrites the
 #                            ~/.bashrc managed block, modifies global git
 #                            config, writes a synthetic Codex API-key login,
-#                            skips live inference smoke tests, and installs
-#                            claude / codex / brev / gh.
+#                            writes a Brev API-key login when AAB_BREV_*
+#                            vars are set, skips live inference smoke tests,
+#                            and installs claude / codex / brev / gh.
 #                            Only run on a disposable machine.
 #   ./test.bash --docker     same as --e2e, but inside a fresh ubuntu:22.04
 #                            docker container — safe to run anywhere with
@@ -107,6 +108,8 @@ run_docker_e2e() {
     # is a no-op when the caller doesn't export it.
     docker run --rm \
         -e GITHUB_TOKEN \
+        -e AAB_BREV_API_KEY \
+        -e AAB_BREV_ORG_ID \
         -v "$HERE:/src:ro" \
         ubuntu:22.04 \
         bash -c 'set -euo pipefail
