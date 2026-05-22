@@ -9,6 +9,9 @@
 #   1. Installs / upgrades Claude Code via the native installer.
 #   2. Installs / upgrades Codex via OpenAI's standalone installer.
 #   3. Installs / upgrades the Brev CLI via the official install-latest.sh.
+#  3b. If AAB_BREV_API_KEY and AAB_BREV_ORG_ID are set, logs Brev in via
+#      `brev login --api-key ... --org-id ...` so Brev commands can run
+#      without a browser login prompt.
 #   4. Installs / upgrades the gh CLI from the official apt repo
 #      (system-wide; needs sudo).
 #   5. Writes ~/.claude/settings.json with unattended-mode defaults
@@ -23,8 +26,8 @@
 #      first `claude` launch skips the theme / color-scheme wizard, and —
 #      if AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY is set — pre-approves that
 #      key so the CLI doesn't prompt for approval on first use either.
-#   8. Writes ~/.brev/onboarding.json so the first `brev` invocation skips
-#      the interactive tutorial.
+#   8. Writes ~/.brev/onboarding_step.json so the first `brev` invocation
+#      skips the interactive tutorial.
 #   9. Configures git: user.name, user.email (from env vars), and registers
 #      gh as the github.com credential helper so `git clone` / `push` reuse
 #      the gh CLI's stored token.
@@ -129,6 +132,10 @@
 #                       environment directly as GH_TOKEN, and the github.com
 #                       credential helper we register below delegates to
 #                       `gh auth git-credential`, so git clone/push reuse it.
+#   AAB_BREV_API_KEY    Brev organization-scoped API key. Used with
+#                       AAB_BREV_ORG_ID to run `brev login --api-key
+#                       <key> --org-id <org>` without a browser login.
+#   AAB_BREV_ORG_ID     Brev organization ID paired with AAB_BREV_API_KEY.
 #   AAB_GIT_AUTHOR_NAME Display name attached to git commits. Written to
 #                       `git config --global user.name`.
 #   AAB_GIT_AUTHOR_EMAIL
@@ -182,9 +189,10 @@
 # Can be run from a local checkout or piped via `curl ... | bash`. Safe to
 # re-run: existing settings.json, config.toml, and .claude.json are backed
 # up before overwrite, and the ~/.bashrc managed block is replaced
-# wholesale each run, so re-running without AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY
-# or AAB_CODEX_FIRST_PARTY_API_KEY set will drop a previously-written export
-# (this is intentional — re-runs match the current env).
+# wholesale each run, so re-running without AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY,
+# AAB_CODEX_FIRST_PARTY_API_KEY, AAB_BREV_API_KEY, or AAB_BREV_ORG_ID set will
+# drop a previously-written export (this is intentional — re-runs match the
+# current env).
 #
 # Optional config input — settings using the env-var contract above can
 # come in via either of two channels (in order of preference):
@@ -353,6 +361,44 @@ BASH
 install_brev() {
     log "Installing / updating Brev CLI via official installer..."
     curl -fsSL https://raw.githubusercontent.com/brevdev/brev-cli/main/bin/install-latest.sh | bash
+}
+
+# ---------------------------------------------------------------------------
+# 3b. Configure Brev API-key auth.
+#
+# `brev login --api-key ... --org-id ...` writes Brev's credentials cache,
+# which makes future Brev commands non-interactive. The API key and org ID
+# are a pair: if the caller provides one without the other, fail immediately
+# instead of leaving Brev on an interactive auth path.
+# ---------------------------------------------------------------------------
+configure_brev_auth() {
+    local api_key="${AAB_BREV_API_KEY:-}"
+    local org_id="${AAB_BREV_ORG_ID:-}"
+
+    if [ -z "$api_key" ] && [ -z "$org_id" ]; then
+        return
+    fi
+    if [ -z "$api_key" ] || [ -z "$org_id" ]; then
+        warn "AAB_BREV_API_KEY and AAB_BREV_ORG_ID must both be set to configure Brev API-key auth."
+        exit 1
+    fi
+
+    local brev_bin=""
+    if command -v brev >/dev/null 2>&1; then
+        brev_bin=$(command -v brev)
+    elif [ -x "${HOME}/.local/bin/brev" ]; then
+        brev_bin="${HOME}/.local/bin/brev"
+    else
+        warn "brev binary not on PATH; cannot configure AAB_BREV_API_KEY auth."
+        exit 1
+    fi
+
+    if ! "$brev_bin" login --api-key "$api_key" --org-id "$org_id" >/dev/null 2>&1; then
+        warn "brev login --api-key failed; cannot configure Brev API-key auth."
+        exit 1
+    fi
+
+    log "Configured Brev API-key auth from AAB_BREV_API_KEY and AAB_BREV_ORG_ID."
 }
 
 # ---------------------------------------------------------------------------
@@ -578,7 +624,7 @@ PY
 }
 
 # ---------------------------------------------------------------------------
-# 8. Write ~/.brev/onboarding.json to disable the Brev interactive tutorial.
+# 8. Write ~/.brev/onboarding_step.json to disable the Brev interactive tutorial.
 # ---------------------------------------------------------------------------
 skip_brev_onboarding() {
     mkdir -p "${BREV_DIR}"
@@ -1049,6 +1095,8 @@ update_bashrc() {
     local third_party_auth_token="${AAB_CLAUDE_CODE_THIRD_PARTY_AUTH_TOKEN:-}"
     local github_token="${AAB_GH_TOKEN:-}"
     local codex_first_party_api_key="${AAB_CODEX_FIRST_PARTY_API_KEY:-}"
+    local brev_api_key="${AAB_BREV_API_KEY:-}"
+    local brev_org_id="${AAB_BREV_ORG_ID:-}"
 
     {
         printf '\n%s\n' "${BASHRC_MARKER_BEGIN}"
@@ -1075,6 +1123,12 @@ update_bashrc() {
         if [ -n "$codex_first_party_api_key" ]; then
             printf 'export AAB_CODEX_FIRST_PARTY_API_KEY=%q\n' "$codex_first_party_api_key"
             printf 'export OPENAI_API_KEY=%q\n' "$codex_first_party_api_key"
+        fi
+        if [ -n "$brev_api_key" ]; then
+            printf 'export AAB_BREV_API_KEY=%q\n' "$brev_api_key"
+        fi
+        if [ -n "$brev_org_id" ]; then
+            printf 'export AAB_BREV_ORG_ID=%q\n' "$brev_org_id"
         fi
 
         # Inner managed block — rewritten in place by
@@ -1200,6 +1254,8 @@ update_etc_environment() {
     local third_party_auth_token="${AAB_CLAUDE_CODE_THIRD_PARTY_AUTH_TOKEN:-}"
     local github_token="${AAB_GH_TOKEN:-}"
     local codex_first_party_api_key="${AAB_CODEX_FIRST_PARTY_API_KEY:-}"
+    local brev_api_key="${AAB_BREV_API_KEY:-}"
+    local brev_org_id="${AAB_BREV_ORG_ID:-}"
 
     local tmp
     tmp=$(mktemp)
@@ -1227,6 +1283,12 @@ update_etc_environment() {
         if [ -n "$codex_first_party_api_key" ]; then
             printf 'AAB_CODEX_FIRST_PARTY_API_KEY="%s"\n' "$codex_first_party_api_key"
             printf 'OPENAI_API_KEY="%s"\n' "$codex_first_party_api_key"
+        fi
+        if [ -n "$brev_api_key" ]; then
+            printf 'AAB_BREV_API_KEY="%s"\n' "$brev_api_key"
+        fi
+        if [ -n "$brev_org_id" ]; then
+            printf 'AAB_BREV_ORG_ID="%s"\n' "$brev_org_id"
         fi
         if [ "$provider" = "anthropic" ]; then
             if [ -n "$first_party_api_key" ]; then
@@ -1391,6 +1453,7 @@ main() {
     install_claude
     install_codex
     install_brev
+    configure_brev_auth
     ensure_gh
     write_settings
     write_codex_config
