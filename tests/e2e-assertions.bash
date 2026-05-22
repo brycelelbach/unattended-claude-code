@@ -39,7 +39,7 @@ pass "settings.json written with unattended-mode defaults."
 
 # 2. config.toml is present and puts Codex in unattended yolo mode.
 [ -f "$CODEX_CONFIG" ] || fail "Codex config.toml not written."
-expected_codex_effort="${AAB_CODEX_REASONING_EFFORT:-xhigh}"
+expected_codex_effort="${AAB_CODEX_EFFORT:-xhigh}"
 grep -q '^approval_policy = "never"$' "$CODEX_CONFIG" \
     || fail "Codex approval_policy is not never."
 grep -q '^sandbox_mode = "danger-full-access"$' "$CODEX_CONFIG" \

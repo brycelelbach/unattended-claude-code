@@ -16,7 +16,7 @@ A single idempotent bash script that turns a fresh Linux host into a ready-to-us
    - `approval_policy = "never"` and `sandbox_mode = "danger-full-access"` in `~/.codex/config.toml`
    - `notice.hide_full_access_warning = true`
    - `shell_environment_policy.inherit = "all"` and `ignore_default_excludes = true` so spawned commands can see credential env vars such as `GH_TOKEN` and `OPENAI_API_KEY`
-   - Model selected via `AAB_CODEX_FIRST_PARTY_MODEL` (defaults to `gpt-5.5`), reasoning effort via `AAB_CODEX_REASONING_EFFORT` (defaults to `xhigh`)
+   - Model selected via `AAB_CODEX_FIRST_PARTY_MODEL` (defaults to `gpt-5.5`), reasoning effort via `AAB_CODEX_EFFORT` (defaults to `xhigh`)
    - `AAB_CODEX_FIRST_PARTY_API_KEY` logged in via `codex login --with-api-key` when provided, then exported as both `AAB_CODEX_FIRST_PARTY_API_KEY` and `OPENAI_API_KEY`
    - `codex` aliased to `codex --dangerously-bypass-approvals-and-sandbox` in interactive shells
    - The bootstrap user's `$HOME` and the bootstrap launch directory are marked trusted so project-local Codex config can load without a trust prompt
@@ -219,7 +219,7 @@ All optional. Anything unset is simply skipped.
 | `AAB_CLAUDE_CODE_THIRD_PARTY_OPUS_MODEL` | Fully-qualified third-party gateway opus-tier model ID. Exported verbatim as `ANTHROPIC_DEFAULT_OPUS_MODEL` in the third-party branch. Defaults to `claude-opus-4-7`. |
 | `AAB_CLAUDE_CODE_EFFORT` | Claude Code effort level. Written to `~/.claude/settings.json`'s `"effortLevel"` field and exported as `CLAUDE_CODE_EFFORT_LEVEL`. Defaults to `max`. |
 | `AAB_CODEX_FIRST_PARTY_MODEL` | Codex first-party model name. Baked into `~/.codex/config.toml`'s `model` field. Defaults to `gpt-5.5`. |
-| `AAB_CODEX_REASONING_EFFORT` | Codex reasoning effort (`minimal`, `low`, `medium`, `high`, or `xhigh`). Baked into `~/.codex/config.toml`'s `model_reasoning_effort` field. Defaults to `xhigh`; invalid values fall back to `xhigh`. |
+| `AAB_CODEX_EFFORT` | Codex reasoning effort (`minimal`, `low`, `medium`, `high`, or `xhigh`). Baked into `~/.codex/config.toml`'s `model_reasoning_effort` field. Defaults to `xhigh`; invalid values fall back to `xhigh`. |
 | `AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY` | Anthropic first-party API key. Last 20 characters are written to `~/.claude.json` under `customApiKeyResponses.approved` so Claude Code doesn't prompt for approval. Also exported as `ANTHROPIC_API_KEY` from the anthropic branch of the `~/.bashrc` managed block. |
 | `AAB_CODEX_FIRST_PARTY_API_KEY` | OpenAI API key used by Codex. Piped into `codex login --with-api-key` when set, exported from the `~/.bashrc` managed block as both `AAB_CODEX_FIRST_PARTY_API_KEY` and `OPENAI_API_KEY`, and mirrored into `/etc/environment` so Codex can use API-key auth without a first-run sign-in prompt. |
 | `AAB_SKIP_INFERENCE_SMOKE_TESTS` | Set to `1`, `true`, or `yes` to skip the final Claude Code and Codex `hello world` inference smoke tests. Intended for e2e tests that use synthetic credentials. |

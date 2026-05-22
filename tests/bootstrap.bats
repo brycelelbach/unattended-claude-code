@@ -22,7 +22,7 @@ setup() {
           AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY \
           AAB_CLAUDE_CODE_THIRD_PARTY_BASE_URL \
           AAB_CLAUDE_CODE_THIRD_PARTY_AUTH_TOKEN \
-          AAB_CODEX_FIRST_PARTY_MODEL AAB_CODEX_REASONING_EFFORT \
+          AAB_CODEX_FIRST_PARTY_MODEL AAB_CODEX_EFFORT \
           AAB_CODEX_FIRST_PARTY_API_KEY AAB_SKIP_INFERENCE_SMOKE_TESTS \
           AAB_GH_TOKEN AAB_GIT_AUTHOR_NAME AAB_GIT_AUTHOR_EMAIL \
           AAB_GH_AUTH_SSH_PRIVATE_KEY_B64 AAB_GIT_SIGNING_PRIVATE_KEY_B64 \
@@ -156,16 +156,16 @@ PY
 
 @test "write_codex_config honors model and reasoning-effort overrides" {
     AAB_CODEX_FIRST_PARTY_MODEL="gpt-5.4" \
-        AAB_CODEX_REASONING_EFFORT="high" \
+        AAB_CODEX_EFFORT="high" \
         write_codex_config
     grep -q '^model = "gpt-5.4"$' "$CODEX_CONFIG"
     grep -q '^model_reasoning_effort = "high"$' "$CODEX_CONFIG"
 }
 
 @test "write_codex_config defaults invalid reasoning effort back to xhigh" {
-    AAB_CODEX_REASONING_EFFORT="maximum" run write_codex_config
+    AAB_CODEX_EFFORT="maximum" run write_codex_config
     [ "$status" -eq 0 ]
-    [[ "$output" == *"AAB_CODEX_REASONING_EFFORT='maximum'"* ]]
+    [[ "$output" == *"AAB_CODEX_EFFORT='maximum'"* ]]
     grep -q '^model_reasoning_effort = "xhigh"$' "$CODEX_CONFIG"
 }
 

@@ -164,7 +164,7 @@
 #                       Codex first-party model name. Baked into
 #                       ~/.codex/config.toml's "model" field. Defaults to
 #                       gpt-5.5.
-#   AAB_CODEX_REASONING_EFFORT
+#   AAB_CODEX_EFFORT
 #                       Codex reasoning effort. Baked into
 #                       ~/.codex/config.toml's model_reasoning_effort field.
 #                       Defaults to xhigh.
@@ -451,11 +451,11 @@ write_codex_config() {
     fi
 
     local model="${AAB_CODEX_FIRST_PARTY_MODEL:-$DEFAULT_CODEX_MODEL}"
-    local effort="${AAB_CODEX_REASONING_EFFORT:-$DEFAULT_CODEX_REASONING_EFFORT}"
+    local effort="${AAB_CODEX_EFFORT:-$DEFAULT_CODEX_REASONING_EFFORT}"
     case "$effort" in
         minimal|low|medium|high|xhigh) ;;
         *)
-            warn "AAB_CODEX_REASONING_EFFORT='${effort}' is not one of minimal, low, medium, high, or xhigh; defaulting to ${DEFAULT_CODEX_REASONING_EFFORT}."
+            warn "AAB_CODEX_EFFORT='${effort}' is not one of minimal, low, medium, high, or xhigh; defaulting to ${DEFAULT_CODEX_REASONING_EFFORT}."
             effort="$DEFAULT_CODEX_REASONING_EFFORT"
             ;;
     esac
